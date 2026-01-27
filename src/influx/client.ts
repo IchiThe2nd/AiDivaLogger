@@ -14,30 +14,12 @@ export interface InfluxClientConfig {
 // This helps with type checking and query optimization
 const schema: Influx.ISchemaOptions[] = [
   {
-    // Schema for probe/sensor readings
+    // Schema for probe/sensor readings from datalog.xml
     measurement: 'apex_probe',
     fields: {
       value: Influx.FieldType.FLOAT,    // Probe reading as float
     },
-    tags: ['host', 'name', 'probe_type', 'device_id'],  // Indexable tags
-  },
-  {
-    // Schema for output device states
-    measurement: 'apex_output',
-    fields: {
-      state: Influx.FieldType.STRING,      // Output state (AON, AOF, etc.)
-      intensity: Influx.FieldType.INTEGER,  // Dimmer intensity percentage
-    },
-    tags: ['host', 'name', 'output_type', 'device_id'],  // Indexable tags
-  },
-  {
-    // Schema for power failure tracking
-    measurement: 'apex_power',
-    fields: {
-      failed: Influx.FieldType.INTEGER,    // Unix timestamp of failure
-      restored: Influx.FieldType.INTEGER,  // Unix timestamp of restoration
-    },
-    tags: ['host'],  // Only tag is the Apex hostname
+    tags: ['host', 'name', 'probe_type'],  // Indexable tags
   },
 ];
 

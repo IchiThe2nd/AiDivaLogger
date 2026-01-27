@@ -1,46 +1,48 @@
-// Interface for probe/sensor data from the Apex
+// Interface for a single probe reading from the datalog
 export interface ApexProbe {
-  did: string;      // Device ID - unique identifier for the probe
-  type: string;     // Probe type: "Temp", "pH", "ORP", "Cond", etc.
-  name: string;     // User-assigned name for the probe
+  name: string;     // User-assigned name for the probe (e.g., "Tmp", "Dis_pH")
+  type: string;     // Probe type: "Temp", "pH", "ORP", "Cond", "Amps", "pwr", "volts"
   value: number;    // Current reading value from the probe
 }
 
-// Interface for output devices (outlets, dimmers, etc.)
-export interface ApexOutput {
-  did: string;        // Device ID - unique identifier for the output
-  type: string;       // Output type: "outlet", "variable", "virtual", "alert"
-  name: string;       // User-assigned name for the output
-  status: string[];   // Array of status flags (e.g., ["AON"], ["AOF"])
-  intensity?: number; // Optional intensity percentage for dimmable outputs
+// Interface for a single record (snapshot in time) from the datalog
+export interface ApexRecord {
+  date: string;         // Timestamp string (e.g., "01/27/2026 00:00:00")
+  probes: ApexProbe[];  // Array of all probe readings at this timestamp
 }
 
-// Interface for feed cycle information
-export interface ApexFeed {
-  name: string;     // Name of the active feed cycle (A, B, C, D)
-  active: number;   // Whether feed mode is active (0 or 1)
+// Interface for the complete datalog response from the Apex
+export interface ApexDatalog {
+  software: string;     // Firmware version string (e.g., "5.12_2B25")
+  hardware: string;     // Hardware revision string (e.g., "1.0")
+  hostname: string;     // Network hostname of the Apex (e.g., "Diva")
+  serial: string;       // Serial number of the Apex (e.g., "AC5:66625")
+  timezone: number;     // Timezone offset in hours (e.g., -8.00)
+  records: ApexRecord[];// Array of all data records
 }
 
-// Interface for power failure tracking
-export interface ApexPower {
-  failed: number;    // Unix timestamp when power failed
-  restored: number;  // Unix timestamp when power was restored
+// Raw XML structure as parsed by fast-xml-parser
+// Used internally for parsing before converting to ApexDatalog
+export interface ApexDatalogXml {
+  datalog: {
+    '@_software': string;   // Software version attribute
+    '@_hardware': string;   // Hardware version attribute
+    hostname: string;       // Hostname element
+    serial: string;         // Serial number element
+    timezone: string;       // Timezone element
+    record: ApexRecordXml | ApexRecordXml[];  // Single record or array of records
+  };
 }
 
-// Interface for Apex system information
-export interface ApexSystem {
-  hostname: string;   // Network hostname of the Apex
-  software: string;   // Firmware version string
-  hardware: string;   // Hardware revision string
-  serial?: string;    // Optional serial number
-  type?: string;      // Optional controller type identifier
+// Raw XML record structure before transformation
+export interface ApexRecordXml {
+  date: string;                           // Date string element
+  probe: ApexProbeXml | ApexProbeXml[];   // Single probe or array of probes
 }
 
-// Main interface for the complete Apex status response
-export interface ApexStatus {
-  system: ApexSystem;       // System information
-  inputs: ApexProbe[];      // Array of all probe readings
-  outputs: ApexOutput[];    // Array of all output states
-  feed?: ApexFeed;          // Optional feed cycle status
-  power?: ApexPower;        // Optional power failure info
+// Raw XML probe structure before transformation
+export interface ApexProbeXml {
+  name: string;   // Probe name element
+  type: string;   // Probe type element
+  value: string;  // Value as string (needs parsing to number)
 }

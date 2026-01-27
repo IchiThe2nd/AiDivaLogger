@@ -1,65 +1,84 @@
 // Import InfluxDB types for point structure
 import type Influx from 'influx';
 // Import Apex types for input data structure
-import type { ApexStatus } from '../apex/types.js';
+import type { ApexDatalog, ApexRecord } from '../apex/types.js';
 
 // Interface for the collection of mapped InfluxDB points
 export interface ApexPoints {
-  probes: Influx.IPoint[];      // Points for probe readings
-  outputs: Influx.IPoint[];     // Points for output states
-  power?: Influx.IPoint;        // Optional point for power status
+  probes: Influx.IPoint[];  // Points for all probe readings across all records
 }
 
-// Transform Apex status data into InfluxDB points
-export function mapApexStatusToPoints(status: ApexStatus): ApexPoints {
-  // Extract hostname for tagging all points
-  const hostname = status.system.hostname;
+// Parse Apex date string to JavaScript Date object
+// Format: "MM/DD/YYYY HH:MM:SS"
+function parseApexDate(dateStr: string, timezoneOffset: number): Date {
+  // Split date and time parts
+  const [datePart, timePart] = dateStr.split(' ');
+  // Split date into components
+  const [month, day, year] = datePart.split('/').map(Number);
+  // Split time into components
+  const [hours, minutes, seconds] = timePart.split(':').map(Number);
+  // Create date in UTC, adjusting for Apex timezone
+  const date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+  // Adjust for timezone offset (convert hours to milliseconds)
+  date.setTime(date.getTime() - timezoneOffset * 60 * 60 * 1000);
+  // Return the adjusted date
+  return date;
+}
 
-  // Map each probe input to an InfluxDB point
-  const probes: Influx.IPoint[] = status.inputs.map((probe) => ({
+// Transform a single record's probes to InfluxDB points
+function mapRecordToPoints(
+  record: ApexRecord,
+  hostname: string,
+  timezoneOffset: number
+): Influx.IPoint[] {
+  // Parse the record timestamp
+  const timestamp = parseApexDate(record.date, timezoneOffset);
+
+  // Map each probe to an InfluxDB point
+  return record.probes.map((probe) => ({
     measurement: 'apex_probe',          // Measurement name
     tags: {
       host: hostname,                   // Apex hostname
       name: probe.name,                 // User-assigned probe name
-      probe_type: probe.type,           // Probe type (Temp, pH, etc.)
-      device_id: probe.did,             // Unique device identifier
+      probe_type: probe.type,           // Probe type (Temp, pH, ORP, etc.)
     },
     fields: {
       value: probe.value,               // Current probe reading
     },
+    timestamp,                          // Record timestamp
   }));
+}
 
-  // Map each output to an InfluxDB point
-  const outputs: Influx.IPoint[] = status.outputs.map((output) => ({
-    measurement: 'apex_output',         // Measurement name
-    tags: {
-      host: hostname,                   // Apex hostname
-      name: output.name,                // User-assigned output name
-      output_type: output.type,         // Output type (outlet, variable, etc.)
-      device_id: output.did,            // Unique device identifier
-    },
-    fields: {
-      state: output.status.join(','),   // Join status array into string
-      intensity: output.intensity ?? 0,  // Default to 0 if no intensity
-    },
-  }));
+// Transform Apex datalog into InfluxDB points
+// Returns points for only the most recent record (current values)
+export function mapDatalogToPoints(datalog: ApexDatalog): ApexPoints {
+  // Get the most recent record (last in array)
+  const latestRecord = datalog.records[datalog.records.length - 1];
 
-  // Initialize power point as undefined
-  let power: Influx.IPoint | undefined;
-  // Only create power point if power data exists
-  if (status.power) {
-    power = {
-      measurement: 'apex_power',        // Measurement name
-      tags: {
-        host: hostname,                 // Apex hostname
-      },
-      fields: {
-        failed: status.power.failed,    // Power failure timestamp
-        restored: status.power.restored, // Power restored timestamp
-      },
-    };
+  // If no records, return empty array
+  if (!latestRecord) {
+    return { probes: [] };
   }
 
+  // Map the latest record to InfluxDB points
+  const probes = mapRecordToPoints(
+    latestRecord,
+    datalog.hostname,
+    datalog.timezone
+  );
+
+  // Return the mapped points
+  return { probes };
+}
+
+// Transform all records in datalog to InfluxDB points
+// Use this for backfilling historical data
+export function mapAllRecordsToPoints(datalog: ApexDatalog): ApexPoints {
+  // Flatten all records into a single array of points
+  const probes = datalog.records.flatMap((record) =>
+    mapRecordToPoints(record, datalog.hostname, datalog.timezone)
+  );
+
   // Return all mapped points
-  return { probes, outputs, power };
+  return { probes };
 }

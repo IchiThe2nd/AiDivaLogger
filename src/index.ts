@@ -2,12 +2,12 @@
 import cron from 'node-cron';
 // Import application configuration
 import { config } from './config.js';
-// Import Apex client for fetching status
+// Import Apex client for fetching datalog
 import { ApexClient } from './apex/client.js';
 // Import InfluxDB client factory
 import { createInfluxClient } from './influx/client.js';
 // Import data transformation function
-import { mapApexStatusToPoints } from './influx/mapper.js';
+import { mapDatalogToPoints } from './influx/mapper.js';
 
 // Main application entry point
 async function main() {
@@ -30,26 +30,20 @@ async function main() {
     // Get current timestamp for logging
     const timestamp = new Date().toISOString();
     // Log poll start
-    console.log(`[${timestamp}] Polling Apex...`);
+    console.log(`[${timestamp}] Polling Apex datalog...`);
 
     try {
-      // Fetch current status from Apex
-      const status = await apexClient.getStatus();
-      // Transform status to InfluxDB points
-      const points = mapApexStatusToPoints(status);
+      // Fetch datalog from Apex (XML format)
+      const datalog = await apexClient.getDatalog();
+      // Transform datalog to InfluxDB points (latest record only)
+      const points = mapDatalogToPoints(datalog);
 
-      // Combine all points into single array
-      const allPoints = [
-        ...points.probes,                           // Spread probe points
-        ...points.outputs,                          // Spread output points
-        ...(points.power ? [points.power] : []),    // Add power point if exists
-      ];
+      // Write all probe points to InfluxDB
+      await influx.writePoints(points.probes);
 
-      // Write all points to InfluxDB
-      await influx.writePoints(allPoints);
-
-      // Log success with point count
-      console.log(`[${timestamp}] Wrote ${allPoints.length} points to InfluxDB`);
+      // Log success with point count and latest record date
+      const latestDate = datalog.records[datalog.records.length - 1]?.date || 'N/A';
+      console.log(`[${timestamp}] Wrote ${points.probes.length} points (record: ${latestDate})`);
     } catch (error) {
       // Log any errors that occur during polling
       console.error(`[${timestamp}] Poll failed:`, error);
