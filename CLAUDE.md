@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. Comment each line for understanding
 3. Use test driven development
 4. Each test must only test one item
+5. use best practices and explain what they are
 
 ## Build Commands
 
