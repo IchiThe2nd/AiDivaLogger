@@ -31,7 +31,7 @@ src/
 │   ├── client.ts      # HTTP client for Neptune Apex API
 │   └── types.ts       # TypeScript interfaces for Apex responses
 └── influx/
-    ├── client.ts      # InfluxDB 1.x client setup
+    ├── client.ts      # InfluxDB 3.x client setup
     └── mapper.ts      # Transform Apex data to InfluxDB points
 ```
 
