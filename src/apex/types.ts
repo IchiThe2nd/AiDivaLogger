@@ -46,3 +46,14 @@ export interface ApexProbeXml {
   type: string;   // Probe type element
   value: string;  // Value as string (needs parsing to number)
 }
+
+// Result of analyzing data coverage on the Apex
+export interface DataCoverageResult {
+  totalRecords: number;              // Total number of records found
+  usefulRecords: number;             // Records with at least one valid probe reading
+  oldestUsefulRecordDate: string;    // Date of the oldest record with useful data
+  newestUsefulRecordDate: string;    // Date of the most recent record with useful data
+  totalDays: number;                 // Total span in days from first to last record
+  daysWithData: number;              // Number of unique days that have useful data
+  coveragePercent: number;           // Percentage of days with useful data
+}

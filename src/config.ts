@@ -18,6 +18,7 @@ export interface Config {
     password?: string;      // Optional password for authentication
   };
   pollInterval: string;     // Cron expression for polling schedule
+  backfillDays: number;     // Days of historical data to fetch on first run
 }
 
 // Helper function to get required environment variables
@@ -58,4 +59,6 @@ export const config: Config = {
   },
   // Polling schedule - defaults to every 5 minutes
   pollInterval: process.env.POLL_INTERVAL || '*/5 * * * *',
+  // Days of historical data to backfill on first run - defaults to 7 days
+  backfillDays: parseInt(process.env.BACKFILL_DAYS || '7', 10),
 };

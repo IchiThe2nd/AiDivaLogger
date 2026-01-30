@@ -2,8 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Track mock calls and configure behavior
-let mockGetDatabaseNames: ReturnType<typeof vi.fn>;
-let mockCreateDatabase: ReturnType<typeof vi.fn>;
+let mockGetDatabaseNames: () => Promise<string[]>;
+let mockCreateDatabase: (name: string) => Promise<void>;
 let mockConstructorConfig: unknown;
 
 // Mock the influx module before importing the client

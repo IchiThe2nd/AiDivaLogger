@@ -88,7 +88,7 @@ describe('mapDatalogToPoints', () => {
       // Should have only one point from the latest record
       expect(result.probes).toHaveLength(1);
       // Value should be from latest record
-      expect(result.probes[0].fields.value).toBe(78.5);
+      expect(result.probes[0]!.fields!.value).toBe(78.5);
     });
   });
 
@@ -114,7 +114,7 @@ describe('mapDatalogToPoints', () => {
       // Should have three points
       expect(result.probes).toHaveLength(3);
       // Verify each probe is mapped
-      expect(result.probes.map(p => p.tags.name)).toEqual(['Temp', 'pH', 'ORP']);
+      expect(result.probes.map(p => p.tags!.name)).toEqual(['Temp', 'pH', 'ORP']);
     });
   });
 
@@ -202,7 +202,7 @@ describe('mapDatalogToPoints', () => {
       const result = mapDatalogToPoints(datalog);
 
       // Verify hostname is in tags
-      expect(result.probes[0].tags.host).toBe('MyReefTank');
+      expect(result.probes[0]!.tags!.host).toBe('MyReefTank');
     });
   });
 });
@@ -247,7 +247,7 @@ describe('mapAllRecordsToPoints', () => {
       // Should have three points (one per record)
       expect(result.probes).toHaveLength(3);
       // Verify all values are present
-      expect(result.probes.map(p => p.fields.value)).toEqual([77.0, 78.5, 79.0]);
+      expect(result.probes.map(p => p.fields!.value)).toEqual([77.0, 78.5, 79.0]);
     });
   });
 
