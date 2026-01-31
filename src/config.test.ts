@@ -92,39 +92,39 @@ describe('config module', () => {
       // Import config
       const { config } = await import('./config.js');
 
-      // Verify defaults are applied
-      expect(config.influx.host).toBe('localhost');
-      expect(config.influx.port).toBe(8086);
+      // Verify defaults are applied (InfluxDB 3.x uses url, not host/port)
+      expect(config.influx.url).toBe('http://localhost:8086');
       expect(config.influx.database).toBe('aquarium');
+      expect(config.influx.token).toBeUndefined();
     });
 
-    it('uses custom values when env vars are set', async () => {
-      // Set all env vars
+    it('uses custom INFLUX_URL when set', async () => {
+      // Set all env vars including new INFLUX_URL
       process.env.APEX_HOST = '192.168.1.100';
-      process.env.INFLUX_HOST = 'influxdb.local';
-      process.env.INFLUX_PORT = '9999';
+      process.env.INFLUX_URL = 'https://influxdb.local:9999';
       process.env.INFLUX_DATABASE = 'mydb';
+      process.env.INFLUX_TOKEN = 'my-secret-token';
 
       // Import config
       const { config } = await import('./config.js');
 
       // Verify custom values are used
-      expect(config.influx.host).toBe('influxdb.local');
-      expect(config.influx.port).toBe(9999);
+      expect(config.influx.url).toBe('https://influxdb.local:9999');
       expect(config.influx.database).toBe('mydb');
+      expect(config.influx.token).toBe('my-secret-token');
     });
 
-    it('parses INFLUX_PORT as integer', async () => {
-      // Set env vars with port as string
+    it('builds url from legacy INFLUX_HOST/PORT when INFLUX_URL not set', async () => {
+      // Set legacy env vars (backwards compatible)
       process.env.APEX_HOST = '192.168.1.100';
-      process.env.INFLUX_PORT = '1234';
+      process.env.INFLUX_HOST = 'influxdb.local';
+      process.env.INFLUX_PORT = '9999';
 
       // Import config
       const { config } = await import('./config.js');
 
-      // Verify port is a number
-      expect(typeof config.influx.port).toBe('number');
-      expect(config.influx.port).toBe(1234);
+      // Verify URL was built from host/port
+      expect(config.influx.url).toBe('http://influxdb.local:9999');
     });
   });
 

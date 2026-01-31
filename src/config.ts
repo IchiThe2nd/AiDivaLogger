@@ -9,16 +9,15 @@ export interface Config {
     username?: string;      // Optional username for authentication
     password?: string;      // Optional password for authentication
   };
-  // InfluxDB connection settings
+  // InfluxDB 3.x connection settings
   influx: {
-    host: string;           // InfluxDB server hostname
-    port: number;           // InfluxDB server port
-    database: string;       // Database name to write to
-    username?: string;      // Optional username for authentication
-    password?: string;      // Optional password for authentication
+    url: string;            // Full URL to InfluxDB server (e.g., http://localhost:8086)
+    token?: string;         // API token for authentication (required for cloud)
+    database: string;       // Database/bucket name to write to
   };
   pollInterval: string;     // Cron expression for polling schedule
   backfillDays: number;     // Days of historical data to fetch on first run
+  forceFullSync: boolean;   // If true, sync all data ignoring existing DB records (fills gaps)
 }
 
 // Helper function to get required environment variables
@@ -41,6 +40,19 @@ function optionalEnv(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
+// Build InfluxDB URL from host and port (for backwards compatibility)
+function buildInfluxUrl(): string {
+  // Check if full URL is provided
+  const url = process.env.INFLUX_URL;
+  if (url) {
+    return url;
+  }
+  // Fall back to building URL from host and port (legacy config)
+  const host = process.env.INFLUX_HOST || 'localhost';
+  const port = process.env.INFLUX_PORT || '8086';
+  return `http://${host}:${port}`;
+}
+
 // Export the configuration object built from environment variables
 export const config: Config = {
   // Apex configuration section
@@ -49,16 +61,16 @@ export const config: Config = {
     username: optionalEnv('APEX_USERNAME'),     // Optional: auth username
     password: optionalEnv('APEX_PASSWORD'),     // Optional: auth password
   },
-  // InfluxDB configuration section
+  // InfluxDB 3.x configuration section
   influx: {
-    host: process.env.INFLUX_HOST || 'localhost',                    // Default to localhost
-    port: parseInt(process.env.INFLUX_PORT || '8086', 10),           // Default to 8086
-    database: process.env.INFLUX_DATABASE || 'aquarium',             // Default database name
-    username: optionalEnv('INFLUX_USERNAME'),                        // Optional: auth username
-    password: optionalEnv('INFLUX_PASSWORD'),                        // Optional: auth password
+    url: buildInfluxUrl(),                                    // Full URL to InfluxDB
+    token: optionalEnv('INFLUX_TOKEN'),                       // Optional: API token
+    database: process.env.INFLUX_DATABASE || 'aquarium',      // Database/bucket name
   },
   // Polling schedule - defaults to every 5 minutes
   pollInterval: process.env.POLL_INTERVAL || '*/5 * * * *',
   // Days of historical data to backfill on first run - defaults to 7 days
   backfillDays: parseInt(process.env.BACKFILL_DAYS || '7', 10),
+  // Force full sync - writes all records, letting InfluxDB deduplicate (fills gaps)
+  forceFullSync: process.env.FORCE_FULL_SYNC === 'true',
 };

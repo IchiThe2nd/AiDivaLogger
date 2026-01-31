@@ -14,9 +14,9 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@influxdata/influxdb3-client": "^2.0.0",
     "dotenv": "^16.4.5",
     "fast-xml-parser": "^4.5.0",
-    "influx": "^5.9.3",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {

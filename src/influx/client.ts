@@ -1,49 +1,76 @@
-// Import the InfluxDB client library for InfluxDB 1.x
-import Influx from 'influx';
+// Import the InfluxDB 3.x client library
+import { InfluxDBClient, Point } from '@influxdata/influxdb3-client';
 
-// Configuration interface for InfluxDB connection
+// Configuration interface for InfluxDB 3.x connection
 export interface InfluxClientConfig {
-  host: string;         // InfluxDB server hostname
-  port: number;         // InfluxDB server port (default 8086)
-  database: string;     // Database name to write to
-  username?: string;    // Optional authentication username
-  password?: string;    // Optional authentication password
+  url: string;            // Full URL to InfluxDB server (e.g., http://localhost:8086)
+  token?: string;         // API token for authentication (required for cloud)
+  database: string;       // Database/bucket name to write to
 }
 
-// Define the schema for measurements we'll write to InfluxDB
-// This helps with type checking and query optimization
-const schema: Influx.ISchemaOptions[] = [
-  {
-    // Schema for probe/sensor readings from datalog.xml
-    measurement: 'apex_probe',
-    fields: {
-      value: Influx.FieldType.FLOAT,    // Probe reading as float
-    },
-    tags: ['host', 'name', 'probe_type'],  // Indexable tags
-  },
-];
+// Wrapper class for InfluxDB 3.x client with simplified API
+export class InfluxClient {
+  // The underlying InfluxDB client instance
+  private client: InfluxDBClient;
+  // Database name for all operations
+  private database: string;
 
-// Factory function to create and initialize the InfluxDB client
-export async function createInfluxClient(config: InfluxClientConfig): Promise<Influx.InfluxDB> {
-  // Create new InfluxDB client instance with configuration
-  const influx = new Influx.InfluxDB({
-    host: config.host,            // Server hostname
-    port: config.port,            // Server port
-    database: config.database,    // Target database
-    username: config.username,    // Optional auth username
-    password: config.password,    // Optional auth password
-    schema,                       // Measurement schemas
-  });
+  // Constructor creates the client connection
+  constructor(config: InfluxClientConfig) {
+    // Store database name for write/query operations
+    this.database = config.database;
 
-  // Get list of existing databases
-  const databases = await influx.getDatabaseNames();
-  // Check if our target database exists
-  if (!databases.includes(config.database)) {
-    // Create the database if it doesn't exist
-    console.log(`Creating database: ${config.database}`);
-    await influx.createDatabase(config.database);
+    // Create the InfluxDB 3.x client
+    this.client = new InfluxDBClient({
+      host: config.url,
+      token: config.token || '',
+    });
   }
 
+  // Write an array of Point objects to the database
+  async writePoints(points: Point[]): Promise<void> {
+    // Skip if no points to write
+    if (points.length === 0) {
+      return;
+    }
+
+    // Write all points to the database
+    await this.client.write(points, this.database);
+  }
+
+  // Query the database using SQL and return results
+  async query<T = Record<string, unknown>>(sql: string): Promise<T[]> {
+    // Execute SQL query against the database
+    const results: T[] = [];
+    // Use queryPoints to get results as an async iterator
+    const queryResult = this.client.query(sql, this.database);
+
+    // Collect all rows from the result
+    for await (const row of queryResult) {
+      results.push(row as T);
+    }
+
+    return results;
+  }
+
+  // Close the client connection (call on shutdown)
+  async close(): Promise<void> {
+    await this.client.close();
+  }
+}
+
+// Re-export Point class for convenience
+export { Point };
+
+// Factory function to create and initialize the InfluxDB client
+export async function createInfluxClient(config: InfluxClientConfig): Promise<InfluxClient> {
+  // Create the client instance
+  const client = new InfluxClient(config);
+
+  // Note: InfluxDB 3.x doesn't require explicit database creation
+  // Databases are created automatically on first write
+  console.log(`Connected to InfluxDB 3.x at ${config.url}, database: ${config.database}`);
+
   // Return the initialized client
-  return influx;
+  return client;
 }

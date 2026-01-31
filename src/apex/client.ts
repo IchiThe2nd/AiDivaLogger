@@ -93,9 +93,13 @@ export class ApexClient {
   }
 
   // Fetch datalog from the Apex controller and parse to structured format
-  async getDatalog(): Promise<ApexDatalog> {
+  // Set minimal=true to request only today's data (for polling efficiency)
+  async getDatalog(minimal: boolean = false): Promise<ApexDatalog> {
     // Build the full URL to the datalog endpoint
-    const url = `${this.baseUrl}/cgi-bin/datalog.xml`;
+    // With minimal=true, add days=0 to reduce response size (network optimization)
+    const url = minimal
+      ? `${this.baseUrl}/cgi-bin/datalog.xml?days=0`
+      : `${this.baseUrl}/cgi-bin/datalog.xml`;
 
     // Initialize request headers
     const headers: Record<string, string> = {
@@ -137,8 +141,8 @@ export class ApexClient {
 
   // Extract date portion (MM/DD/YYYY) from full date string
   private extractDatePart(dateStr: string): string {
-    // Split on space and take the date portion
-    return dateStr.split(' ')[0];
+    // Use substring for fixed format "MM/DD/YYYY HH:MM:SS" (avoids array allocation)
+    return dateStr.substring(0, 10);
   }
 
   // Get data coverage information from Apex

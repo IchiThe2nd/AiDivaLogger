@@ -1,11 +1,11 @@
-// Import InfluxDB types for point structure
-import type Influx from 'influx';
+// Import InfluxDB 3.x Point class for building data points
+import { Point } from '@influxdata/influxdb3-client';
 // Import Apex types for input data structure
 import type { ApexDatalog, ApexRecord } from '../apex/types.js';
 
 // Interface for the collection of mapped InfluxDB points
 export interface ApexPoints {
-  probes: Influx.IPoint[];  // Points for all probe readings across all records
+  probes: Point[];  // Points for all probe readings across all records
 }
 
 // Parse Apex date string to JavaScript Date object
@@ -25,28 +25,25 @@ function parseApexDate(dateStr: string, timezoneOffset: number): Date {
   return date;
 }
 
-// Transform a single record's probes to InfluxDB points
+// Transform a single record's probes to InfluxDB 3.x Points
 function mapRecordToPoints(
   record: ApexRecord,
   hostname: string,
   timezoneOffset: number
-): Influx.IPoint[] {
+): Point[] {
   // Parse the record timestamp
   const timestamp = parseApexDate(record.date, timezoneOffset);
 
-  // Map each probe to an InfluxDB point
-  return record.probes.map((probe) => ({
-    measurement: 'apex_probe',          // Measurement name
-    tags: {
-      host: hostname,                   // Apex hostname
-      name: probe.name,                 // User-assigned probe name
-      probe_type: probe.type,           // Probe type (Temp, pH, ORP, etc.)
-    },
-    fields: {
-      value: probe.value,               // Current probe reading
-    },
-    timestamp,                          // Record timestamp
-  }));
+  // Map each probe to an InfluxDB Point using builder pattern
+  // InfluxDB 3.x uses static factory method instead of constructor
+  return record.probes.map((probe) =>
+    Point.measurement('apex_probe')            // Measurement name via factory method
+      .setTag('host', hostname)                // Apex hostname tag
+      .setTag('name', probe.name)              // User-assigned probe name tag
+      .setTag('probe_type', probe.type)        // Probe type tag (Temp, pH, ORP, etc.)
+      .setFloatField('value', probe.value)     // Current probe reading as float
+      .setTimestamp(timestamp)                 // Record timestamp
+  );
 }
 
 // Transform Apex datalog into InfluxDB points
