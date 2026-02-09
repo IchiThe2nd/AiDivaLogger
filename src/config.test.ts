@@ -152,4 +152,80 @@ describe('config module', () => {
       expect(config.pollInterval).toBe('*/1 * * * *');
     });
   });
+
+  describe('queryLookbackDays', () => {
+    it('defaults to 30 days when not set', async () => {
+      // Set only required env var
+      process.env.APEX_HOST = '192.168.1.100';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify default lookback
+      expect(config.queryLookbackDays).toBe(30);
+    });
+
+    it('uses custom value when QUERY_LOOKBACK_DAYS is set', async () => {
+      // Set required env var and custom lookback
+      process.env.APEX_HOST = '192.168.1.100';
+      process.env.QUERY_LOOKBACK_DAYS = '14';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify custom lookback value
+      expect(config.queryLookbackDays).toBe(14);
+    });
+
+    it('parses string to integer correctly', async () => {
+      // Set required env var and lookback as string
+      process.env.APEX_HOST = '192.168.1.100';
+      process.env.QUERY_LOOKBACK_DAYS = '7';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify value is number not string
+      expect(typeof config.queryLookbackDays).toBe('number');
+      expect(config.queryLookbackDays).toBe(7);
+    });
+  });
+
+  describe('queryChunkDays', () => {
+    it('defaults to 7 days when not set', async () => {
+      // Set only required env var
+      process.env.APEX_HOST = '192.168.1.100';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify default chunk size
+      expect(config.queryChunkDays).toBe(7);
+    });
+
+    it('uses custom value when QUERY_CHUNK_DAYS is set', async () => {
+      // Set required env var and custom chunk size
+      process.env.APEX_HOST = '192.168.1.100';
+      process.env.QUERY_CHUNK_DAYS = '3';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify custom chunk value
+      expect(config.queryChunkDays).toBe(3);
+    });
+
+    it('parses string to integer correctly', async () => {
+      // Set required env var and chunk as string
+      process.env.APEX_HOST = '192.168.1.100';
+      process.env.QUERY_CHUNK_DAYS = '14';
+
+      // Import config
+      const { config } = await import('./config.js');
+
+      // Verify value is number not string
+      expect(typeof config.queryChunkDays).toBe('number');
+      expect(config.queryChunkDays).toBe(14);
+    });
+  });
 });

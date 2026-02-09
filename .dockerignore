@@ -1,0 +1,37 @@
+# Dependencies (rebuilt inside container)
+node_modules
+
+# Build output (rebuilt inside container)
+dist
+
+# Environment files (secrets - passed via docker-compose)
+.env
+
+# Git metadata (not needed in image)
+.git
+.gitignore
+
+# Test files (not needed in production)
+**/*.test.ts
+**/*.test.js
+vitest.config.*
+coverage
+
+# Editor and IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (prevent recursive copy)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation and config not needed at runtime
+CLAUDE.md
+*.md

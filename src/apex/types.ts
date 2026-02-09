@@ -47,6 +47,43 @@ export interface ApexProbeXml {
   value: string;  // Value as string (needs parsing to number)
 }
 
+// Interface for a single outlet state change from the outlog
+export interface ApexOutletRecord {
+  date: string;     // Timestamp string (e.g., "02/03/2026 10:41:07")
+  name: string;     // Outlet name (e.g., "CalcRx", "TopOff", "ATO_Cycler")
+  value: string;    // State string: "ON" or "OFF"
+}
+
+// Interface for the complete outlog response from the Apex
+export interface ApexOutlog {
+  software: string;             // Firmware version string (e.g., "5.12_CA25")
+  hardware: string;             // Hardware revision string (e.g., "1.0")
+  hostname: string;             // Network hostname of the Apex (e.g., "Diva")
+  serial: string;               // Serial number of the Apex (e.g., "AC5:66625")
+  timezone: number;             // Timezone offset in hours (e.g., -8.00)
+  records: ApexOutletRecord[];  // Array of all outlet state change records
+}
+
+// Raw XML structure for outlog as parsed by fast-xml-parser
+// Root element is <outlog> instead of <datalog>
+export interface ApexOutlogXml {
+  outlog: {
+    '@_software': string;   // Software version attribute
+    '@_hardware': string;   // Hardware version attribute
+    hostname: string;       // Hostname element
+    serial: string;         // Serial number element
+    timezone: string;       // Timezone element (string, needs parseFloat)
+    record: ApexOutletRecordXml | ApexOutletRecordXml[];  // Single or array of records
+  };
+}
+
+// Raw XML outlet record structure before transformation
+export interface ApexOutletRecordXml {
+  date: string;     // Date string element
+  name: string;     // Outlet name element
+  value: string;    // State string element ("ON" or "OFF")
+}
+
 // Result of analyzing data coverage on the Apex
 export interface DataCoverageResult {
   totalRecords: number;              // Total number of records found

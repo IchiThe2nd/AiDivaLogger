@@ -1,7 +1,9 @@
 // Import the XML parser library
 import { XMLParser } from 'fast-xml-parser';
-// Import types for the datalog structure
+// Import types for the datalog and outlog structures
 import type { ApexDatalog, ApexDatalogXml, ApexProbeXml, ApexRecordXml, DataCoverageResult } from './types.js';
+// Import outlog types for outlet state parsing
+import type { ApexOutlog, ApexOutlogXml, ApexOutletRecordXml } from './types.js';
 // Import ApexRecord for type annotations
 import type { ApexRecord } from './types.js';
 
@@ -326,6 +328,120 @@ export class ApexClient {
       serial: datalog.serial,                     // Serial number element
       timezone: parseFloat(datalog.timezone),     // Parse timezone to number
       records,                                    // Array of transformed records
+    };
+  }
+
+  // Fetch outlog from the Apex controller (outlet state changes)
+  // Set minimal=true to request only today's data (for polling efficiency)
+  async getOutlog(minimal: boolean = false): Promise<ApexOutlog> {
+    // Build the full URL to the outlog endpoint
+    // With minimal=true, add days=0 to reduce response size
+    const url = minimal
+      ? `${this.baseUrl}/cgi-bin/outlog.xml?days=0`
+      : `${this.baseUrl}/cgi-bin/outlog.xml`;
+
+    // Initialize request headers
+    const headers: Record<string, string> = {
+      'Accept': 'application/xml',  // Request XML response
+    };
+
+    // Add auth header if credentials were provided
+    if (this.authHeader) {
+      headers['Authorization'] = this.authHeader;
+    }
+
+    // Make the HTTP GET request
+    const response = await fetch(url, { headers });
+
+    // Check for HTTP errors
+    if (!response.ok) {
+      // Throw descriptive error with status code
+      throw new Error(`Failed to fetch Apex outlog: ${response.status} ${response.statusText}`);
+    }
+
+    // Get the raw XML text from response
+    const xmlText = await response.text();
+    // Parse XML to JavaScript object
+    const xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+
+    // Transform parsed XML to clean ApexOutlog structure
+    return this.transformOutlog(xmlData);
+  }
+
+  // Fetch historical outlog from Apex starting at a specific date
+  async getHistoricalOutlog(startDate: Date, days: number): Promise<ApexOutlog> {
+    // Format the start date for the API query parameter
+    const sdate = this.formatApexDate(startDate);
+    // Build the full URL with query parameters for historical data
+    const url = `${this.baseUrl}/cgi-bin/outlog.xml?sdate=${sdate}&days=${days}`;
+
+    // Initialize request headers
+    const headers: Record<string, string> = {
+      'Accept': 'application/xml',  // Request XML response
+    };
+
+    // Add auth header if credentials were provided
+    if (this.authHeader) {
+      headers['Authorization'] = this.authHeader;
+    }
+
+    // Make the HTTP GET request
+    const response = await fetch(url, { headers });
+
+    // Check for HTTP errors
+    if (!response.ok) {
+      // Throw descriptive error with status code
+      throw new Error(`Failed to fetch Apex historical outlog: ${response.status} ${response.statusText}`);
+    }
+
+    // Get the raw XML text from response
+    const xmlText = await response.text();
+    // Parse XML to JavaScript object
+    const xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+
+    // Transform parsed XML to clean ApexOutlog structure
+    return this.transformOutlog(xmlData);
+  }
+
+  // Transform raw XML structure to clean ApexOutlog format
+  private transformOutlog(xmlData: ApexOutlogXml): ApexOutlog {
+    // Extract the outlog root element
+    const outlog = xmlData.outlog;
+
+    // Handle case where no records exist in the XML
+    if (!outlog.record) {
+      // Return outlog with empty records array
+      return {
+        software: outlog['@_software'],
+        hardware: outlog['@_hardware'],
+        hostname: outlog.hostname,
+        serial: outlog.serial,
+        timezone: parseFloat(outlog.timezone),
+        records: [],
+      };
+    }
+
+    // Normalize records to always be an array (XML may have single record)
+    const recordsRaw = Array.isArray(outlog.record) ? outlog.record : [outlog.record];
+
+    // Filter out any undefined or null records
+    const validRecords = recordsRaw.filter((record): record is ApexOutletRecordXml => record != null);
+
+    // Transform each record to clean format (values stay as strings: ON/OFF)
+    const records = validRecords.map((record: ApexOutletRecordXml) => ({
+      date: record.date,      // Date string as-is
+      name: record.name,      // Outlet name as-is
+      value: record.value,    // State string as-is (ON/OFF)
+    }));
+
+    // Return complete transformed outlog
+    return {
+      software: outlog['@_software'],            // Software version from attribute
+      hardware: outlog['@_hardware'],            // Hardware version from attribute
+      hostname: outlog.hostname,                 // Hostname element
+      serial: outlog.serial,                     // Serial number element
+      timezone: parseFloat(outlog.timezone),     // Parse timezone to number
+      records,                                   // Array of transformed outlet records
     };
   }
 }

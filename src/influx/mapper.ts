@@ -1,11 +1,16 @@
 // Import InfluxDB 3.x Point class for building data points
 import { Point } from '@influxdata/influxdb3-client';
 // Import Apex types for input data structure
-import type { ApexDatalog, ApexRecord } from '../apex/types.js';
+import type { ApexDatalog, ApexRecord, ApexOutlog, ApexOutletRecord } from '../apex/types.js';
 
-// Interface for the collection of mapped InfluxDB points
+// Interface for the collection of mapped InfluxDB probe points
 export interface ApexPoints {
   probes: Point[];  // Points for all probe readings across all records
+}
+
+// Interface for the collection of mapped InfluxDB outlet points
+export interface ApexOutletPoints {
+  outlets: Point[];  // Points for all outlet state changes
 }
 
 // Parse Apex date string to JavaScript Date object
@@ -78,4 +83,58 @@ export function mapAllRecordsToPoints(datalog: ApexDatalog): ApexPoints {
 
   // Return all mapped points
   return { probes };
+}
+
+// Transform a single outlet record to an InfluxDB 3.x Point
+// Maps ON/OFF string to integer 1/0 for Grafana graphing
+function mapOutletRecordToPoint(
+  record: ApexOutletRecord,
+  hostname: string,
+  timezoneOffset: number
+): Point {
+  // Parse the record timestamp
+  const timestamp = parseApexDate(record.date, timezoneOffset);
+  // Convert ON/OFF string to integer (1=ON, 0=OFF)
+  const state = record.value === 'ON' ? 1 : 0;
+
+  // Build and return the InfluxDB Point
+  return Point.measurement('apex_outlet')       // Measurement name for outlet data
+    .setTag('host', hostname)                   // Apex hostname tag
+    .setTag('name', record.name)                // Outlet name tag
+    .setIntegerField('state', state)            // State as integer (1=ON, 0=OFF)
+    .setTimestamp(timestamp);                   // Record timestamp
+}
+
+// Transform Apex outlog into InfluxDB points
+// Returns point for only the most recent record (current state)
+export function mapOutlogToPoints(outlog: ApexOutlog): ApexOutletPoints {
+  // Get the most recent record (last in array)
+  const latestRecord = outlog.records[outlog.records.length - 1];
+
+  // If no records, return empty array
+  if (!latestRecord) {
+    return { outlets: [] };
+  }
+
+  // Map the latest record to an InfluxDB point
+  const point = mapOutletRecordToPoint(
+    latestRecord,
+    outlog.hostname,
+    outlog.timezone
+  );
+
+  // Return the mapped point
+  return { outlets: [point] };
+}
+
+// Transform all records in outlog to InfluxDB points
+// Use this for backfilling historical outlet data
+export function mapAllOutlogToPoints(outlog: ApexOutlog): ApexOutletPoints {
+  // Map each outlet record to an InfluxDB point
+  const outlets = outlog.records.map((record) =>
+    mapOutletRecordToPoint(record, outlog.hostname, outlog.timezone)
+  );
+
+  // Return all mapped points
+  return { outlets };
 }

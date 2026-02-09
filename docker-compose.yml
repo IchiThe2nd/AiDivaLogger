@@ -1,0 +1,87 @@
+# Docker Compose for AiDivaLogger stack
+# Runs InfluxDB 3 Core, the data logger, and Grafana
+# Works on both x86_64 and ARM64 (Raspberry Pi)
+#
+# Usage:
+#   docker compose up -d --build    # Start all services
+#   docker compose logs -f logger   # Watch logger output
+#   docker compose down             # Stop all services
+#
+# RPi 5 users: add "kernel=kernel8.img" to /boot/firmware/config.txt
+# and reboot before running (fixes jemalloc 16KB page size issue)
+
+services:
+  # InfluxDB 3 Core - time-series database for probe and outlet data
+  influxdb:
+    image: influxdb:3-core
+    # Expose InfluxDB on port 8181 for external tools (Grafana, CLI queries)
+    ports:
+      - "8181:8181"
+    # Persist database files across container restarts
+    volumes:
+      - influxdb-data:/var/lib/influxdb3/data
+    # Configure InfluxDB with same flags as Diva.sh
+    command: >
+      influxdb3 serve
+      --node-id=diva-node
+      --object-store=file
+      --data-dir=/var/lib/influxdb3/data
+      --query-file-limit=15000
+      --without-auth
+    # Health check so dependent services wait until DB is ready
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    # Restart automatically on crash or reboot
+    restart: unless-stopped
+
+  # AiDivaLogger - polls Neptune Apex and writes to InfluxDB
+  logger:
+    # Build from the Dockerfile in this directory
+    build: .
+    # Wait for InfluxDB to pass health check before starting
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    # Pass configuration via environment variables
+    # Docker Compose reads .env file automatically
+    environment:
+      - APEX_HOST=${APEX_HOST}
+      - APEX_USERNAME=${APEX_USERNAME:-}
+      - APEX_PASSWORD=${APEX_PASSWORD:-}
+      # Use Docker service name "influxdb" as hostname (Docker internal DNS)
+      - INFLUX_URL=http://influxdb:8181
+      - INFLUX_DATABASE=${INFLUX_DATABASE:-aquarium}
+      - POLL_INTERVAL=${POLL_INTERVAL:-*/5 * * * *}
+      - QUERY_LOOKBACK_DAYS=${QUERY_LOOKBACK_DAYS:-30}
+      - QUERY_CHUNK_DAYS=${QUERY_CHUNK_DAYS:-7}
+    # Restart automatically on crash
+    restart: unless-stopped
+
+  # Grafana - web dashboard for visualizing probe and outlet data
+  grafana:
+    image: grafana/grafana:latest
+    # Expose Grafana web UI on port 3000
+    ports:
+      - "3000:3000"
+    # Persist dashboards, data sources, and settings
+    volumes:
+      - grafana-data:/var/lib/grafana
+    # Wait for InfluxDB to be ready (Grafana queries it)
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    # Configure Grafana admin password from .env
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    # Restart automatically on crash or reboot
+    restart: unless-stopped
+
+# Named volumes for persistent data storage
+# Data survives container rebuilds and restarts
+volumes:
+  influxdb-data:
+  grafana-data:

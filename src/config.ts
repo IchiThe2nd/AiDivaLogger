@@ -18,6 +18,8 @@ export interface Config {
   pollInterval: string;     // Cron expression for polling schedule
   backfillDays: number;     // Days of historical data to fetch on first run
   forceFullSync: boolean;   // If true, sync all data ignoring existing DB records (fills gaps)
+  queryLookbackDays: number;  // Maximum days to look back in InfluxDB queries (prevents file limit errors)
+  queryChunkDays: number;     // Days per chunk when querying (smaller = fewer files scanned per query)
 }
 
 // Helper function to get required environment variables
@@ -73,4 +75,10 @@ export const config: Config = {
   backfillDays: parseInt(process.env.BACKFILL_DAYS || '7', 10),
   // Force full sync - writes all records, letting InfluxDB deduplicate (fills gaps)
   forceFullSync: process.env.FORCE_FULL_SYNC === 'true',
+  // Days to look back in queries - defaults to 30 to avoid InfluxDB 3 file limit errors
+  // Reduce this if you get "exceeding the file limit" errors
+  queryLookbackDays: parseInt(process.env.QUERY_LOOKBACK_DAYS || '30', 10),
+  // Days per query chunk - defaults to 7 days to stay under file limits
+  // Queries iterate through chunks until data is found or lookback is exhausted
+  queryChunkDays: parseInt(process.env.QUERY_CHUNK_DAYS || '7', 10),
 };

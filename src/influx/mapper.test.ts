@@ -1,9 +1,9 @@
 // Tests for the InfluxDB mapper module
 import { describe, it, expect } from 'vitest';
 // Import functions under test
-import { mapDatalogToPoints, mapAllRecordsToPoints } from './mapper.js';
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints } from './mapper.js';
 // Import types for test data
-import type { ApexDatalog } from '../apex/types.js';
+import type { ApexDatalog, ApexOutlog } from '../apex/types.js';
 
 // Helper to create a minimal valid datalog for testing
 function createTestDatalog(overrides: Partial<ApexDatalog> = {}): ApexDatalog {
@@ -273,6 +273,177 @@ describe('mapAllRecordsToPoints', () => {
 
       // Should have four points (2 probes × 2 records)
       expect(result.probes).toHaveLength(4);
+    });
+  });
+});
+
+// Helper to create a minimal valid outlog for testing
+function createTestOutlog(overrides: Partial<ApexOutlog> = {}): ApexOutlog {
+  return {
+    software: '5.12_CA25',
+    hardware: '1.0',
+    hostname: 'TestApex',
+    serial: 'AC5:12345',
+    timezone: -8,
+    records: [],
+    ...overrides,
+  };
+}
+
+describe('mapOutlogToPoints', () => {
+  describe('empty records handling', () => {
+    it('returns empty outlets array when records is empty', () => {
+      // Create outlog with no records
+      const outlog = createTestOutlog({ records: [] });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Should return empty array
+      expect(result.outlets).toEqual([]);
+    });
+  });
+
+  describe('single record mapping', () => {
+    it('returns point for the latest record only', () => {
+      // Create outlog with multiple records
+      const outlog = createTestOutlog({
+        records: [
+          { date: '02/03/2026 10:41:07', name: 'CalcRx', value: 'ON' },
+          { date: '02/03/2026 10:42:00', name: 'TopOff', value: 'OFF' },
+        ],
+      });
+
+      // Map to points (latest record only)
+      const result = mapOutlogToPoints(outlog);
+
+      // Should have only one point from the latest record
+      expect(result.outlets).toHaveLength(1);
+      expect(result.outlets[0].getTag('name')).toBe('TopOff');
+    });
+  });
+
+  describe('ON/OFF state mapping', () => {
+    it('maps ON to integer 1', () => {
+      // Create outlog with ON state
+      const outlog = createTestOutlog({
+        records: [
+          { date: '02/03/2026 10:41:07', name: 'CalcRx', value: 'ON' },
+        ],
+      });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Verify ON maps to 1
+      expect(result.outlets[0].getIntegerField('state')).toBe(1);
+    });
+
+    it('maps OFF to integer 0', () => {
+      // Create outlog with OFF state
+      const outlog = createTestOutlog({
+        records: [
+          { date: '02/03/2026 10:42:00', name: 'TopOff', value: 'OFF' },
+        ],
+      });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Verify OFF maps to 0
+      expect(result.outlets[0].getIntegerField('state')).toBe(0);
+    });
+  });
+
+  describe('point structure', () => {
+    it('uses apex_outlet measurement name', () => {
+      // Create outlog with one record
+      const outlog = createTestOutlog({
+        records: [
+          { date: '02/03/2026 10:41:07', name: 'CalcRx', value: 'ON' },
+        ],
+      });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Verify measurement name
+      expect(result.outlets[0].getMeasurement()).toBe('apex_outlet');
+    });
+
+    it('includes hostname and outlet name as tags', () => {
+      // Create outlog with specific hostname
+      const outlog = createTestOutlog({
+        hostname: 'Diva',
+        records: [
+          { date: '02/03/2026 10:41:07', name: 'ATO_Cycler', value: 'ON' },
+        ],
+      });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Verify tags
+      expect(result.outlets[0].getTag('host')).toBe('Diva');
+      expect(result.outlets[0].getTag('name')).toBe('ATO_Cycler');
+    });
+  });
+
+  describe('timestamp parsing', () => {
+    it('parses date string and applies timezone offset', () => {
+      // Create outlog with known date and timezone
+      const outlog = createTestOutlog({
+        timezone: -8,
+        records: [
+          { date: '02/03/2026 12:00:00', name: 'CalcRx', value: 'ON' },
+        ],
+      });
+
+      // Map to points
+      const result = mapOutlogToPoints(outlog);
+
+      // Get the timestamp from the point
+      const timestamp = result.outlets[0].getTimestamp() as Date;
+      // The date 02/03/2026 12:00:00 in UTC-8 should be 02/03/2026 20:00:00 UTC
+      expect(timestamp.toISOString()).toBe('2026-02-03T20:00:00.000Z');
+    });
+  });
+});
+
+describe('mapAllOutlogToPoints', () => {
+  describe('empty records handling', () => {
+    it('returns empty outlets array when records is empty', () => {
+      // Create outlog with no records
+      const outlog = createTestOutlog({ records: [] });
+
+      // Map all records to points
+      const result = mapAllOutlogToPoints(outlog);
+
+      // Should return empty array
+      expect(result.outlets).toEqual([]);
+    });
+  });
+
+  describe('multiple records', () => {
+    it('returns points for all records', () => {
+      // Create outlog with multiple records
+      const outlog = createTestOutlog({
+        records: [
+          { date: '02/03/2026 10:41:07', name: 'CalcRx', value: 'ON' },
+          { date: '02/03/2026 10:42:00', name: 'TopOff', value: 'OFF' },
+          { date: '02/03/2026 10:43:05', name: 'ATO_Cycler', value: 'ON' },
+        ],
+      });
+
+      // Map all records to points
+      const result = mapAllOutlogToPoints(outlog);
+
+      // Should have three points (one per record)
+      expect(result.outlets).toHaveLength(3);
+      // Verify all outlet names are present
+      expect(result.outlets.map(p => p.getTag('name'))).toEqual(['CalcRx', 'TopOff', 'ATO_Cycler']);
+      // Verify state values
+      expect(result.outlets.map(p => p.getIntegerField('state'))).toEqual([1, 0, 1]);
     });
   });
 });
