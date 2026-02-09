@@ -11,13 +11,29 @@
 # and reboot before running (fixes jemalloc 16KB page size issue)
 
 services:
+  # One-time init: set volume ownership for the influxdb3 user (UID 1500)
+  # Runs as root, fixes permissions, then exits — only needed on first start
+  influxdb-init:
+    image: influxdb:3-core
+    user: "0:0"
+    volumes:
+      - influxdb-data:/var/lib/influxdb3/data
+    entrypoint: ["sh", "-c", "chown -R 1500:1500 /var/lib/influxdb3/data"]
+
   # InfluxDB 3 Core - time-series database for probe and outlet data
   influxdb:
     image: influxdb:3-core
+    # Wait for init to fix volume permissions before starting
+    depends_on:
+      influxdb-init:
+        condition: service_completed_successfully
+    # Run as the influxdb3 user (UID 1500) — must match volume ownership
+    user: "1500:1500"
     # Expose InfluxDB on port 8181 for external tools (Grafana, CLI queries)
     ports:
       - "8181:8181"
     # Persist database files across container restarts
+    # The init container below ensures correct ownership on first run
     volumes:
       - influxdb-data:/var/lib/influxdb3/data
     # Configure InfluxDB with same flags as Diva.sh
@@ -66,7 +82,7 @@ services:
     image: grafana/grafana:latest
     # Expose Grafana web UI on port 3000
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     # Persist dashboards, data sources, and settings
     volumes:
       - grafana-data:/var/lib/grafana
