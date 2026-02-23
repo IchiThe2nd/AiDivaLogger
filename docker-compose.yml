@@ -22,6 +22,7 @@ services:
 
   # InfluxDB 3 Core - time-series database for probe and outlet data
   influxdb:
+    mem_limit:  512m
     image: influxdb:3-core
     # Wait for init to fix volume permissions before starting
     depends_on:
@@ -58,6 +59,7 @@ services:
   logger:
     # Build from the Dockerfile in this directory
     build: .
+    mem_limit:  512m
     # Wait for InfluxDB to pass health check before starting
     depends_on:
       influxdb:
@@ -79,6 +81,7 @@ services:
 
   # Grafana - web dashboard for visualizing probe and outlet data
   grafana:
+    mem_limit:  512m
     image: grafana/grafana:latest
     # Expose Grafana web UI on port 3000
     ports:
