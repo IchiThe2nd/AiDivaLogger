@@ -1,9 +1,9 @@
 // Tests for the InfluxDB mapper module
 import { describe, it, expect } from 'vitest';
 // Import functions under test
-import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints } from './mapper.js';
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints, mapStatusToOutletPoints } from './mapper.js';
 // Import types for test data
-import type { ApexDatalog, ApexOutlog } from '../apex/types.js';
+import type { ApexDatalog, ApexOutlog, ApexStatus } from '../apex/types.js';
 
 // Helper to create a minimal valid datalog for testing
 function createTestDatalog(overrides: Partial<ApexDatalog> = {}): ApexDatalog {
@@ -444,6 +444,209 @@ describe('mapAllOutlogToPoints', () => {
       expect(result.outlets.map(p => p.getTag('name'))).toEqual(['CalcRx', 'TopOff', 'ATO_Cycler']);
       // Verify state values
       expect(result.outlets.map(p => p.getIntegerField('state'))).toEqual([1, 0, 1]);
+    });
+  });
+});
+
+// Helper to create a minimal valid ApexStatus for testing
+function createTestStatus(overrides: Partial<ApexStatus> = {}): ApexStatus {
+  return {
+    hostname: 'TestApex',
+    software: '5.12_CA25',
+    hardware: '1.0',
+    serial: 'AC5:12345',
+    type: 'AC5',
+    inputs: [],
+    outputs: [],
+    ...overrides,
+  };
+}
+
+describe('mapStatusToOutletPoints', () => {
+  describe('empty outputs handling', () => {
+    it('returns empty outlets array when outputs is empty', () => {
+      // Create status with no outputs
+      const status = createTestStatus({ outputs: [] });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // No outputs means no points written to InfluxDB
+      expect(result.outlets).toEqual([]);
+    });
+  });
+
+  describe('point count', () => {
+    it('returns one point per output', () => {
+      // Create status with three outputs of different types
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+          { status: ['AOF', '', 'OK', ''], name: 'TopOff', gid: '', type: '24v', ID: 22, did: '6_1' },
+          { status: ['TBL', '', 'OK', ''], name: 'T5_InnerActi', gid: '', type: 'variable', ID: 2, did: 'base_Var3' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Every output must produce exactly one point regardless of type
+      expect(result.outlets).toHaveLength(3);
+    });
+  });
+
+  describe('measurement name', () => {
+    it('uses apex_outlet measurement name', () => {
+      // Create status with one output
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Must share measurement name with outlog so existing Grafana dashboards keep working
+      expect(result.outlets[0].getMeasurement()).toBe('apex_outlet');
+    });
+  });
+
+  describe('tags', () => {
+    it('includes hostname as host tag', () => {
+      // Create status with a known hostname
+      const status = createTestStatus({
+        hostname: 'Diva',
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Host tag must match the Apex hostname
+      expect(result.outlets[0].getTag('host')).toBe('Diva');
+    });
+
+    it('includes output name as name tag', () => {
+      // Create status with a named output
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Name tag must match the output name for Grafana filtering
+      expect(result.outlets[0].getTag('name')).toBe('Sump');
+    });
+
+    it('includes output type as type tag', () => {
+      // Create status with a typed output
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Type tag enables Grafana filtering by output type (e.g. type = 'outlet')
+      expect(result.outlets[0].getTag('type')).toBe('outlet');
+    });
+
+    it('preserves composite type strings without modification', () => {
+      // Vortech pumps have a pipe-separated composite type string
+      const status = createTestStatus({
+        outputs: [
+          { status: ['AON', '', 'Cnst', 'OK'], name: 'Vortech_5_1', gid: '0', type: 'MXMPump|Ecotech|Vortech', ID: 21, did: '5_1' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // Composite type must be stored as-is — no splitting or transformation
+      expect(result.outlets[0].getTag('type')).toBe('MXMPump|Ecotech|Vortech');
+    });
+  });
+
+  describe('state mapping', () => {
+    it('maps ON to integer 1', () => {
+      // Manually-on outlet
+      const status = createTestStatus({
+        outputs: [{ status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' }],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // ON must map to 1 (outlet is physically running)
+      expect(result.outlets[0].getIntegerField('state')).toBe(1);
+    });
+
+    it('maps AON to integer 1', () => {
+      // Auto-mode on outlet
+      const status = createTestStatus({
+        outputs: [{ status: ['AON', '', 'OK', ''], name: 'TopOff', gid: '', type: '24v', ID: 22, did: '6_1' }],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // AON must also map to 1 (outlet is running in auto mode)
+      expect(result.outlets[0].getIntegerField('state')).toBe(1);
+    });
+
+    it('maps OFF to integer 0', () => {
+      // Manually-off outlet
+      const status = createTestStatus({
+        outputs: [{ status: ['OFF', '', 'OK', ''], name: 'CalCo2', gid: '', type: 'outlet', ID: 12, did: '2_5' }],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // OFF must map to 0
+      expect(result.outlets[0].getIntegerField('state')).toBe(0);
+    });
+
+    it('maps AOF to integer 0', () => {
+      // Auto-mode off outlet
+      const status = createTestStatus({
+        outputs: [{ status: ['AOF', '', 'OK', ''], name: 'T5lights', gid: '', type: 'outlet', ID: 9, did: '2_2' }],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // AOF must map to 0 (outlet is off in auto mode)
+      expect(result.outlets[0].getIntegerField('state')).toBe(0);
+    });
+
+    it('maps TBL to integer 0', () => {
+      // Table-controlled output — physical state cannot be determined from TBL alone
+      const status = createTestStatus({
+        outputs: [{ status: ['TBL', '', 'OK', ''], name: 'T5_InnerActi', gid: '', type: 'variable', ID: 2, did: 'base_Var3' }],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, new Date());
+      // TBL maps to 0 (conservative — no confirmed on-state)
+      expect(result.outlets[0].getIntegerField('state')).toBe(0);
+    });
+  });
+
+  describe('timestamp', () => {
+    it('uses the provided timestamp on the first point', () => {
+      // Fixed timestamp for deterministic testing
+      const fixedTime = new Date('2026-02-23T10:00:00.000Z');
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+          { status: ['OFF', '', 'OK', ''], name: 'Heater', gid: '', type: 'outlet', ID: 11, did: '2_4' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, fixedTime);
+      // First point must carry the poll timestamp
+      expect((result.outlets[0].getTimestamp() as Date).toISOString()).toBe('2026-02-23T10:00:00.000Z');
+    });
+
+    it('uses the same timestamp for every output in the snapshot', () => {
+      // Fixed timestamp for deterministic testing
+      const fixedTime = new Date('2026-02-23T10:00:00.000Z');
+      const status = createTestStatus({
+        outputs: [
+          { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+          { status: ['OFF', '', 'OK', ''], name: 'Heater', gid: '', type: 'outlet', ID: 11, did: '2_4' },
+        ],
+      });
+      // Map to points
+      const result = mapStatusToOutletPoints(status, fixedTime);
+      // Second point must share the same poll epoch as the first
+      expect((result.outlets[1].getTimestamp() as Date).toISOString()).toBe('2026-02-23T10:00:00.000Z');
     });
   });
 });

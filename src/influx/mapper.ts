@@ -1,7 +1,7 @@
 // Import InfluxDB 3.x Point class for building data points
 import { Point } from '@influxdata/influxdb3-client';
 // Import Apex types for input data structure
-import type { ApexDatalog, ApexRecord, ApexOutlog, ApexOutletRecord } from '../apex/types.js';
+import type { ApexDatalog, ApexRecord, ApexOutlog, ApexOutletRecord, ApexStatus, ApexStatusOutput } from '../apex/types.js';
 
 // Interface for the collection of mapped InfluxDB probe points
 export interface ApexPoints {
@@ -136,5 +136,40 @@ export function mapAllOutlogToPoints(outlog: ApexOutlog): ApexOutletPoints {
   );
 
   // Return all mapped points
+  return { outlets };
+}
+
+// Map a single ApexStatusOutput to an InfluxDB Point
+// Timestamp is provided externally (status.json has no per-record timestamps)
+function mapStatusOutputToPoint(
+  output: ApexStatusOutput,
+  hostname: string,
+  timestamp: Date
+): Point {
+  // Extract state string from the first element of the status array
+  // Possible values: "ON" (manual on), "OFF" (off), "AON" (auto on), "AOF" (auto off), "TBL" (table-controlled)
+  const stateStr = output.status[0];
+  // ON and AON both mean the output is physically running — map to 1
+  // Everything else (OFF, AOF, TBL) maps to 0
+  const state = (stateStr === 'ON' || stateStr === 'AON') ? 1 : 0;
+
+  // Build InfluxDB Point — reuses apex_outlet measurement for Grafana compatibility
+  return Point.measurement('apex_outlet')
+    .setTag('host', hostname)          // Apex hostname for multi-controller filtering
+    .setTag('name', output.name)       // Output name (e.g., "Sump", "TopOff")
+    .setTag('type', output.type)       // Output type tag (e.g., "outlet", "24v", "virtual") — allows Grafana filtering
+    .setIntegerField('state', state)   // Binary state: 1=on, 0=off
+    .setTimestamp(timestamp);          // Fetch time passed in from poll()
+}
+
+// Transform an ApexStatus snapshot into InfluxDB outlet points
+// Captures ALL outputs in one shot — use the `type` tag in Grafana to filter by output type
+// Timestamp must be provided by the caller (new Date() at time of getStatus() fetch)
+export function mapStatusToOutletPoints(status: ApexStatus, timestamp: Date): ApexOutletPoints {
+  // Map every output to a point — all types included, none filtered out
+  const outlets = status.outputs.map((output: ApexStatusOutput) =>
+    mapStatusOutputToPoint(output, status.hostname, timestamp)
+  );
+  // Return using the existing ApexOutletPoints interface
   return { outlets };
 }

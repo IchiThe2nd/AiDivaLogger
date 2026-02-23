@@ -6,6 +6,8 @@ import type { ApexDatalog, ApexDatalogXml, ApexProbeXml, ApexRecordXml, DataCove
 import type { ApexOutlog, ApexOutlogXml, ApexOutletRecordXml } from './types.js';
 // Import ApexRecord for type annotations
 import type { ApexRecord } from './types.js';
+// Import status.json types for the snapshot endpoint
+import type { ApexStatus, ApexStatusJson } from './types.js';
 
 // Configuration interface for the Apex client
 export interface ApexClientConfig {
@@ -401,6 +403,38 @@ export class ApexClient {
 
     // Transform parsed XML to clean ApexOutlog structure
     return this.transformOutlog(xmlData);
+  }
+
+  // Fetch current state of all outputs from /cgi-bin/status.json
+  // Returns a snapshot of every output right now (no date params — always present state)
+  async getStatus(): Promise<ApexStatus> {
+    // Build URL to the status.json endpoint
+    const url = `${this.baseUrl}/cgi-bin/status.json`;
+
+    // Initialize request headers
+    const headers: Record<string, string> = {
+      'Accept': 'application/json', // JSON response, not XML
+    };
+
+    // Add auth header if credentials were provided
+    if (this.authHeader) {
+      headers['Authorization'] = this.authHeader; // Reuse cached Basic auth header
+    }
+
+    // Make the HTTP GET request
+    const response = await fetch(url, { headers });
+
+    // Check for HTTP errors before attempting to parse body
+    if (!response.ok) {
+      // Throw descriptive error with status code for debugging
+      throw new Error(`Failed to fetch Apex status: ${response.status} ${response.statusText}`);
+    }
+
+    // Parse JSON body directly (no XML parser needed)
+    const json = await response.json() as ApexStatusJson;
+
+    // Unwrap the istat envelope and return the clean ApexStatus object
+    return json.istat;
   }
 
   // Transform raw XML structure to clean ApexOutlog format

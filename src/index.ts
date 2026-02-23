@@ -9,7 +9,7 @@ import type { ApexDatalog } from './apex/types.js';
 // Import InfluxDB client factory and type
 import { createInfluxClient, InfluxClient } from './influx/client.js';
 // Import data transformation functions for probes and outlets
-import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints } from './influx/mapper.js';
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapAllOutlogToPoints } from './influx/mapper.js';
 
 // Parse Apex date format (MM/DD/YYYY HH:MM:SS) to Date object
 function parseApexDate(dateStr: string): Date {
@@ -430,10 +430,12 @@ async function main() {
 
   // Define the polling function that fetches and writes probe + outlet data
   async function poll() {
-    // Get current timestamp for logging
-    const timestamp = new Date().toISOString();
+    // Capture timestamp once — reused for InfluxDB point timestamps and log messages
+    const timestamp = new Date();
+    // Format as ISO string for log output
+    const timestampStr = timestamp.toISOString();
     // Log poll start
-    console.log(`[${timestamp}] Polling Apex...`);
+    console.log(`[${timestampStr}] Polling Apex...`);
 
     try {
       // Fetch datalog from Apex (XML format) with minimal=true for polling efficiency
@@ -443,19 +445,20 @@ async function main() {
       // Write all probe points to InfluxDB
       await influx.writePoints(probePoints.probes);
 
-      // Fetch outlog from Apex (outlet state changes) with minimal=true
-      const outlog = await apexClient.getOutlog(true);
-      // Transform outlog to InfluxDB points (latest record only)
-      const outletPoints = mapOutlogToPoints(outlog);
+      // Fetch current state of ALL outputs from status.json (replaces outlog event-log approach)
+      // status.json returns a live snapshot of every outlet — not just the most recent change
+      const status = await apexClient.getStatus();
+      // Transform status snapshot to InfluxDB points; share the same poll timestamp as probes
+      const outletPoints = mapStatusToOutletPoints(status, timestamp);
       // Write all outlet points to InfluxDB
       await influx.writePoints(outletPoints.outlets);
 
       // Log success with point counts
       const latestDate = datalog.records[datalog.records.length - 1]?.date || 'N/A';
-      console.log(`[${timestamp}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet points (record: ${latestDate})`);
+      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet points (record: ${latestDate})`);
     } catch (error) {
       // Log any errors that occur during polling
-      console.error(`[${timestamp}] Poll failed:`, error);
+      console.error(`[${timestampStr}] Poll failed:`, error);
     }
   }
 

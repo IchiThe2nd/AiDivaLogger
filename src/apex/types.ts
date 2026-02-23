@@ -84,6 +84,43 @@ export interface ApexOutletRecordXml {
   value: string;    // State string element ("ON" or "OFF")
 }
 
+// Interface for a single output (outlet, 24v, dos, virtual, variable, etc.) from status.json
+// status[0] holds the state string: "ON", "OFF", "AON", "AOF", "TBL"
+export interface ApexStatusOutput {
+  name: string;       // User-assigned name (e.g., "Sump", "T5lights")
+  type: string;       // Output type: "outlet", "24v", "dos", "virtual", "variable", "alert", etc. (may be composite like "MXMPump|Ecotech|Vortech")
+  did: string;        // Device ID string (e.g., "2_1", "Cntl_A2")
+  ID: number;         // Numeric output ID
+  gid: string;        // Group ID (empty string if not grouped)
+  status: string[];   // Status array; status[0] is the state string
+  intensity?: number; // Optional intensity value (only present on light outputs)
+}
+
+// Interface for a single input sensor from status.json
+export interface ApexStatusInput {
+  did: string;    // Device ID string (e.g., "base_Temp", "base_pH")
+  type: string;   // Input type: "Temp", "pH", "ORP", "Cond", "Amps", "pwr", "volts", "digital"
+  name: string;   // User-assigned name (e.g., "Tmp", "Salt")
+  value: number;  // Current reading value
+}
+
+// Clean parsed structure for the full status.json response
+export interface ApexStatus {
+  hostname: string;             // Network hostname (e.g., "Diva")
+  software: string;             // Firmware version (e.g., "5.12_CA25")
+  hardware: string;             // Hardware revision (e.g., "1.0")
+  serial: string;               // Serial number (e.g., "AC5:66625")
+  type: string;                 // Controller type (e.g., "AC5")
+  inputs: ApexStatusInput[];    // All sensor/probe inputs with current values
+  outputs: ApexStatusOutput[];  // All outputs with their current state
+}
+
+// Raw JSON envelope as returned from /cgi-bin/status.json
+// The entire payload is nested under an "istat" key
+export interface ApexStatusJson {
+  istat: ApexStatus; // Unwrap this envelope before returning to callers
+}
+
 // Result of analyzing data coverage on the Apex
 export interface DataCoverageResult {
   totalRecords: number;              // Total number of records found

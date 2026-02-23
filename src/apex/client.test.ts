@@ -108,6 +108,27 @@ const emptyOutlogXml = `<?xml version="1.0" encoding="UTF-8"?>
   <timezone>-8.00</timezone>
 </outlog>`;
 
+// Sample status.json fixture — covers four state variations (ON, AOF, TBL, AON) and two types
+const sampleStatusJson = {
+  istat: {
+    hostname: 'TestApex',
+    software: '5.12_CA25',
+    hardware: '1.0',
+    serial: 'AC5:12345',
+    type: 'AC5',
+    inputs: [
+      { did: 'base_Temp', type: 'Temp', name: 'Tmp', value: 77.2 },
+      { did: 'base_pH', type: 'pH', name: 'Dis_pH', value: 8.19 },
+    ],
+    outputs: [
+      { status: ['ON', '', 'OK', ''], name: 'Sump', gid: '', type: 'outlet', ID: 8, did: '2_1' },
+      { status: ['AOF', '', 'OK', ''], name: 'TopOff', gid: '', type: '24v', ID: 22, did: '6_1' },
+      { status: ['TBL', '', 'OK', ''], name: 'T5_InnerActi', gid: '', type: 'variable', ID: 2, did: 'base_Var3' },
+      { status: ['AON', '', 'OK', ''], name: 'EmailAlm_I5', gid: '', type: 'alert', ID: 6, did: 'base_email' },
+    ],
+  },
+};
+
 describe('ApexClient', () => {
   // Store original fetch to restore later
   const originalFetch = global.fetch;
@@ -502,6 +523,122 @@ describe('ApexClient', () => {
 
       // Verify URL includes sdate and days parameters
       expect(capturedUrl).toBe('http://192.168.1.100/cgi-bin/outlog.xml?sdate=2602031030&days=3');
+    });
+  });
+
+  describe('getStatus', () => {
+    it('fetches the correct status.json URL', async () => {
+      // Create client pointing at known host
+      const client = new ApexClient({ host: '192.168.1.100' });
+      // Track the URL that fetch is called with
+      let capturedUrl = '';
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        capturedUrl = url;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      });
+      await client.getStatus();
+      // Must request the status.json endpoint — not outlog or datalog
+      expect(capturedUrl).toBe('http://192.168.1.100/cgi-bin/status.json');
+    });
+
+    it('sets Accept header to application/json', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      // Capture the request options to inspect headers
+      let capturedHeaders: Record<string, string> = {};
+      global.fetch = vi.fn().mockImplementation((_url: string, options: RequestInit) => {
+        capturedHeaders = options.headers as Record<string, string>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      });
+      await client.getStatus();
+      // Must request JSON, not XML
+      expect(capturedHeaders['Accept']).toBe('application/json');
+    });
+
+    it('returns hostname from the unwrapped istat envelope', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // Verifies the istat wrapper is stripped before returning
+      expect(status.hostname).toBe('TestApex');
+    });
+
+    it('returns the correct number of outputs', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // Fixture has 4 outputs — all must be present
+      expect(status.outputs).toHaveLength(4);
+    });
+
+    it('returns the correct number of inputs', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // Fixture has 2 inputs — all must be present
+      expect(status.inputs).toHaveLength(2);
+    });
+
+    it('parses the first output name correctly', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // First output in fixture is Sump
+      expect(status.outputs[0].name).toBe('Sump');
+    });
+
+    it('parses the first output status[0] correctly', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // Sump is ON in the fixture
+      expect(status.outputs[0].status[0]).toBe('ON');
+    });
+
+    it('parses the first output type correctly', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      const status = await client.getStatus();
+      // Sump is of type "outlet" in the fixture
+      expect(status.outputs[0].type).toBe('outlet');
+    });
+
+    it('includes Authorization header when credentials are provided', async () => {
+      // Create client with credentials
+      const client = new ApexClient({ host: '192.168.1.100', username: 'admin', password: 'secret' });
+      // Capture the request options to inspect headers
+      let capturedHeaders: Record<string, string> = {};
+      global.fetch = vi.fn().mockImplementation((_url: string, options: RequestInit) => {
+        capturedHeaders = options.headers as Record<string, string>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(sampleStatusJson) });
+      });
+      await client.getStatus();
+      // Authorization header must be present when credentials were configured
+      expect(capturedHeaders['Authorization']).toBeDefined();
+    });
+
+    it('throws an error on HTTP failure', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      // Mock a 401 Unauthorized response
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+      // Must throw with the correct error message
+      await expect(client.getStatus()).rejects.toThrow('Failed to fetch Apex status: 401 Unauthorized');
+    });
+
+    it('propagates network errors', async () => {
+      // Create client
+      const client = new ApexClient({ host: '192.168.1.100' });
+      // Mock a network-level failure
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      // Network errors must propagate through without being swallowed
+      await expect(client.getStatus()).rejects.toThrow('Network error');
     });
   });
 });
