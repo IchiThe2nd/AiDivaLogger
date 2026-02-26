@@ -41,14 +41,16 @@ function mapRecordToPoints(
 
   // Map each probe to an InfluxDB Point using builder pattern
   // InfluxDB 3.x uses static factory method instead of constructor
-  return record.probes.map((probe) =>
-    Point.measurement('apex_probe')            // Measurement name via factory method
-      .setTag('host', hostname)                // Apex hostname tag
-      .setTag('name', probe.name)              // User-assigned probe name tag
-      .setTag('probe_type', probe.type)        // Probe type tag (Temp, pH, ORP, etc.)
-      .setFloatField('value', probe.value)     // Current probe reading as float
-      .setTimestamp(timestamp)                 // Record timestamp
-  );
+  return record.probes
+    .filter((probe) => !isNaN(probe.value))    // Skip probes with NaN (disconnected/unconfigured sensors)
+    .map((probe) =>
+      Point.measurement('apex_probe')            // Measurement name via factory method
+        .setTag('host', hostname)                // Apex hostname tag
+        .setTag('name', probe.name)              // User-assigned probe name tag
+        .setTag('probe_type', probe.type)        // Probe type tag (Temp, pH, ORP, etc.)
+        .setFloatField('value', probe.value)     // Current probe reading as float
+        .setTimestamp(timestamp)                 // Record timestamp
+    );
 }
 
 // Transform Apex datalog into InfluxDB points
