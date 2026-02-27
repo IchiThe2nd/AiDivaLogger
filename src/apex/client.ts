@@ -89,6 +89,12 @@ export class ApexClient {
 
     // Get the raw XML text from response
     const xmlText = await response.text();
+
+    // Guard against empty response body (Apex can return empty during reboot/busy)
+    if (!xmlText || xmlText.trim().length === 0) {
+      throw new Error('Apex returned empty historical datalog response');
+    }
+
     // Parse XML to JavaScript object
     const xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
 
@@ -126,6 +132,12 @@ export class ApexClient {
 
     // Get the raw XML text from response
     const xmlText = await response.text();
+
+    // Guard against empty response body (Apex can return empty during reboot/busy)
+    if (!xmlText || xmlText.trim().length === 0) {
+      throw new Error('Apex returned empty datalog response');
+    }
+
     // Parse XML to JavaScript object
     const xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
 

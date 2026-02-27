@@ -1,7 +1,7 @@
 // Import InfluxDB 3.x Point class for building data points
 import { Point } from '@influxdata/influxdb3-client';
 // Import Apex types for input data structure
-import type { ApexDatalog, ApexRecord, ApexOutlog, ApexOutletRecord, ApexStatus, ApexStatusOutput } from '../apex/types.js';
+import type { ApexDatalog, ApexRecord, ApexOutlog, ApexOutletRecord, ApexStatus, ApexStatusOutput, ApexStatusInput } from '../apex/types.js';
 
 // Interface for the collection of mapped InfluxDB probe points
 export interface ApexPoints {
@@ -11,6 +11,11 @@ export interface ApexPoints {
 // Interface for the collection of mapped InfluxDB outlet points
 export interface ApexOutletPoints {
   outlets: Point[];  // Points for all outlet state changes
+}
+
+// Interface for the collection of mapped InfluxDB input points
+export interface ApexInputPoints {
+  inputs: Point[];  // Points for all input readings (FMM floats, probes, etc.)
 }
 
 // Parse Apex date string to JavaScript Date object
@@ -174,4 +179,20 @@ export function mapStatusToOutletPoints(status: ApexStatus, timestamp: Date): Ap
   );
   // Return using the existing ApexOutletPoints interface
   return { outlets };
+}
+
+// Transform an ApexStatus snapshot into InfluxDB input points
+// Captures ALL inputs (FMM float switches, voltage probes, etc.)
+// Timestamp must be provided by the caller (new Date() at time of getStatus() fetch)
+export function mapStatusToInputPoints(status: ApexStatus, timestamp: Date): ApexInputPoints {
+  // Map every input to a point — value is already numeric (e.g. 0/1 for FMM floats)
+  const inputs = status.inputs.map((input: ApexStatusInput) =>
+    Point.measurement('apex_input')
+      .setTag('host', status.hostname)   // Apex hostname for multi-controller filtering
+      .setTag('name', input.name)        // Input name (e.g. "FMM_6")
+      .setTag('type', input.type)        // Input type (e.g. "fmm", "volt", "alk")
+      .setFloatField('value', input.value) // Numeric value — 0/1 for floats, voltage, etc.
+      .setTimestamp(timestamp)           // Fetch time passed in from poll()
+  );
+  return { inputs };
 }

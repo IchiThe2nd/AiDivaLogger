@@ -9,7 +9,7 @@ import type { ApexDatalog } from './apex/types.js';
 // Import InfluxDB client factory and type
 import { createInfluxClient, InfluxClient } from './influx/client.js';
 // Import data transformation functions for probes and outlets
-import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapAllOutlogToPoints } from './influx/mapper.js';
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapStatusToInputPoints, mapAllOutlogToPoints } from './influx/mapper.js';
 
 // Parse Apex date format (MM/DD/YYYY HH:MM:SS) to Date object
 function parseApexDate(dateStr: string): Date {
@@ -453,9 +453,14 @@ async function main() {
       // Write all outlet points to InfluxDB
       await influx.writePoints(outletPoints.outlets);
 
+      // Transform status inputs (FMM floats, voltage probes, etc.) to InfluxDB points
+      const inputPoints = mapStatusToInputPoints(status, timestamp);
+      // Write all input points to InfluxDB
+      await influx.writePoints(inputPoints.inputs);
+
       // Log success with point counts
       const latestDate = datalog.records[datalog.records.length - 1]?.date || 'N/A';
-      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet points (record: ${latestDate})`);
+      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet + ${inputPoints.inputs.length} input points (record: ${latestDate})`);
     } catch (error) {
       // Log any errors that occur during polling
       console.error(`[${timestampStr}] Poll failed:`, error);
