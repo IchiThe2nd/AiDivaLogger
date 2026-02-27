@@ -186,13 +186,15 @@ export function mapStatusToOutletPoints(status: ApexStatus, timestamp: Date): Ap
 // Timestamp must be provided by the caller (new Date() at time of getStatus() fetch)
 export function mapStatusToInputPoints(status: ApexStatus, timestamp: Date): ApexInputPoints {
   // Map every input to a point — value is already numeric (e.g. 0/1 for FMM floats)
-  const inputs = status.inputs.map((input: ApexStatusInput) =>
-    Point.measurement('apex_input')
-      .setTag('host', status.hostname)   // Apex hostname for multi-controller filtering
-      .setTag('name', input.name)        // Input name (e.g. "FMM_6")
-      .setTag('type', input.type)        // Input type (e.g. "fmm", "volt", "alk")
-      .setFloatField('value', input.value) // Numeric value — 0/1 for floats, voltage, etc.
-      .setTimestamp(timestamp)           // Fetch time passed in from poll()
-  );
+  const inputs = status.inputs
+    .filter((input) => !isNaN(input.value))    // Skip inputs with NaN (disconnected/unconfigured)
+    .map((input: ApexStatusInput) =>
+      Point.measurement('apex_input')
+        .setTag('host', status.hostname)   // Apex hostname for multi-controller filtering
+        .setTag('name', input.name)        // Input name (e.g. "FMM_6")
+        .setTag('type', input.type)        // Input type (e.g. "fmm", "volt", "alk")
+        .setFloatField('value', input.value) // Numeric value — 0/1 for floats, voltage, etc.
+        .setTimestamp(timestamp)           // Fetch time passed in from poll()
+    );
   return { inputs };
 }
