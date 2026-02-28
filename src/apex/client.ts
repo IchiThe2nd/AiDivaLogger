@@ -442,8 +442,21 @@ export class ApexClient {
       throw new Error(`Failed to fetch Apex status: ${response.status} ${response.statusText}`);
     }
 
-    // Parse JSON body directly (no XML parser needed)
-    const json = await response.json() as ApexStatusJson;
+    // Get raw text first so we can validate before parsing
+    const jsonText = await response.text();
+
+    // Guard against empty or truncated response (Apex can return partial JSON when busy)
+    if (!jsonText || jsonText.trim().length === 0) {
+      throw new Error('Apex returned empty status response');
+    }
+
+    // Parse JSON with a descriptive error if malformed (e.g. truncated response)
+    let json: ApexStatusJson;
+    try {
+      json = JSON.parse(jsonText) as ApexStatusJson;
+    } catch (e) {
+      throw new Error(`Apex returned malformed status JSON: ${e instanceof Error ? e.message : e}`);
+    }
 
     // Unwrap the istat envelope and return the clean ApexStatus object
     return json.istat;
