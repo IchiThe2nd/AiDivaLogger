@@ -95,8 +95,13 @@ export class ApexClient {
       throw new Error('Apex returned empty historical datalog response');
     }
 
-    // Parse XML to JavaScript object
-    const xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
+    // Parse XML to JavaScript object (guard against malformed/truncated XML)
+    let xmlData: ApexDatalogXml;
+    try {
+      xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
+    } catch (e) {
+      throw new Error(`Apex returned malformed historical datalog XML: ${e instanceof Error ? e.message : e}`);
+    }
 
     // Transform parsed XML to clean ApexDatalog structure
     return this.transformDatalog(xmlData);
@@ -138,8 +143,13 @@ export class ApexClient {
       throw new Error('Apex returned empty datalog response');
     }
 
-    // Parse XML to JavaScript object
-    const xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
+    // Parse XML to JavaScript object (guard against malformed/truncated XML)
+    let xmlData: ApexDatalogXml;
+    try {
+      xmlData = this.parser.parse(xmlText) as ApexDatalogXml;
+    } catch (e) {
+      throw new Error(`Apex returned malformed datalog XML: ${e instanceof Error ? e.message : e}`);
+    }
 
     // Transform parsed XML to clean ApexDatalog structure
     return this.transformDatalog(xmlData);
@@ -375,8 +385,13 @@ export class ApexClient {
 
     // Get the raw XML text from response
     const xmlText = await response.text();
-    // Parse XML to JavaScript object
-    const xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+    // Parse XML to JavaScript object (guard against malformed/truncated XML)
+    let xmlData: ApexOutlogXml;
+    try {
+      xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+    } catch (e) {
+      throw new Error(`Apex returned malformed outlog XML: ${e instanceof Error ? e.message : e}`);
+    }
 
     // Transform parsed XML to clean ApexOutlog structure
     return this.transformOutlog(xmlData);
@@ -410,8 +425,13 @@ export class ApexClient {
 
     // Get the raw XML text from response
     const xmlText = await response.text();
-    // Parse XML to JavaScript object
-    const xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+    // Parse XML to JavaScript object (guard against malformed/truncated XML)
+    let xmlData: ApexOutlogXml;
+    try {
+      xmlData = this.parser.parse(xmlText) as ApexOutlogXml;
+    } catch (e) {
+      throw new Error(`Apex returned malformed historical outlog XML: ${e instanceof Error ? e.message : e}`);
+    }
 
     // Transform parsed XML to clean ApexOutlog structure
     return this.transformOutlog(xmlData);
