@@ -166,6 +166,7 @@ function mapStatusOutputToPoint(
     .setTag('name', output.name)       // Output name (e.g., "Sump", "TopOff")
     .setTag('type', output.type)       // Output type tag (e.g., "outlet", "24v", "virtual") — allows Grafana filtering
     .setIntegerField('state', state)   // Binary state: 1=on, 0=off
+    .setStringField('status', stateStr) // Raw state string: ON/OFF/AON/AOF/TBL
     .setTimestamp(timestamp);          // Fetch time passed in from poll()
 }
 
