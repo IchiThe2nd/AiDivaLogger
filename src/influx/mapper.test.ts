@@ -1,7 +1,7 @@
 // Tests for the InfluxDB mapper module
 import { describe, it, expect } from 'vitest';
 // Import functions under test
-import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints, mapStatusToOutletPoints } from './mapper.js';
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapOutlogToPoints, mapAllOutlogToPoints, mapStatusToOutletPoints, mapStatusToAlertPoints } from './mapper.js';
 // Import types for test data
 import type { ApexDatalog, ApexOutlog, ApexStatus } from '../apex/types.js';
 
@@ -448,6 +448,19 @@ describe('mapAllOutlogToPoints', () => {
   });
 });
 
+// Helper to create a minimal valid ApexStatusOutput for testing
+function createTestOutput(overrides: Partial<{ status: string[]; name: string; type: string; gid: string; ID: number; did: string }> = {}) {
+  return {
+    status: ['AOF', '', 'OK', ''],
+    name: 'SndAlm_I6',
+    gid: '',
+    type: 'alert',
+    ID: 30,
+    did: 'alert_30',
+    ...overrides,
+  };
+}
+
 // Helper to create a minimal valid ApexStatus for testing
 function createTestStatus(overrides: Partial<ApexStatus> = {}): ApexStatus {
   return {
@@ -647,6 +660,194 @@ describe('mapStatusToOutletPoints', () => {
       const result = mapStatusToOutletPoints(status, fixedTime);
       // Second point must share the same poll epoch as the first
       expect((result.outlets[1].getTimestamp() as Date).toISOString()).toBe('2026-02-23T10:00:00.000Z');
+    });
+  });
+});
+
+describe('mapStatusToAlertPoints', () => {
+  // Z — Zero: no outputs at all
+  describe('empty outputs', () => {
+    it('returns empty alerts array when outputs is empty', () => {
+      // Status with no outputs — nothing to filter or map
+      const status = createTestStatus({ outputs: [] });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // No outputs means no alert points
+      expect(result.alerts).toEqual([]);
+    });
+  });
+
+  // Z — Zero: outputs exist but none are alerts
+  describe('no alert-type outputs', () => {
+    it('returns empty alerts array when no output has type alert', () => {
+      // Status with only non-alert outputs (outlets, virtual, 24v)
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'Sump', type: 'outlet', status: ['ON', '', 'OK', ''] }),
+          createTestOutput({ name: 'TopOff', type: '24v', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points — filter should exclude all outputs
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Non-alert outputs must not appear in apex_alert measurement
+      expect(result.alerts).toEqual([]);
+    });
+  });
+
+  // O — One: single alert output
+  describe('single alert output', () => {
+    it('returns one point when there is exactly one alert-type output', () => {
+      // Status with one alert output and one non-alert output
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+          createTestOutput({ name: 'Sump', type: 'outlet', status: ['ON', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Only the alert-type output should produce a point
+      expect(result.alerts).toHaveLength(1);
+    });
+
+    it('uses apex_alert as the measurement name', () => {
+      // Alert points must go to apex_alert, not apex_outlet
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Measurement name must be apex_alert so it's queryable independently of outlets
+      expect(result.alerts[0].getMeasurement()).toBe('apex_alert');
+    });
+
+    it('tags the point with the output name and host', () => {
+      // Verify tags are propagated from the status and output to the point
+      const status = createTestStatus({
+        hostname: 'Diva',
+        outputs: [
+          createTestOutput({ name: 'EmailAlm_I5', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Host and name tags must match for Grafana filtering
+      expect(result.alerts[0].getTag('host')).toBe('Diva');
+      expect(result.alerts[0].getTag('name')).toBe('EmailAlm_I5');
+      expect(result.alerts[0].getTag('type')).toBe('alert');
+    });
+  });
+
+  // M — Many: multiple alert outputs
+  describe('multiple alert outputs', () => {
+    it('returns one point per alert-type output', () => {
+      // Status with several alert outputs mixed with non-alert outputs
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+          createTestOutput({ name: 'EmailAlm_I5', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+          createTestOutput({ name: 'SndWrn_I7', type: 'alert', status: ['AON', '', 'OK', ''] }),
+          createTestOutput({ name: 'Sump', type: 'outlet', status: ['ON', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Three alert outputs produce three points; outlet is excluded
+      expect(result.alerts).toHaveLength(3);
+      // Verify alert output names are correctly preserved
+      expect(result.alerts.map(p => p.getTag('name'))).toEqual(['SndAlm_I6', 'EmailAlm_I5', 'SndWrn_I7']);
+    });
+  });
+
+  // B — Boundary: state mapping at the on/off boundary
+  describe('state mapping', () => {
+    it('maps AON to integer 1 (alert is firing)', () => {
+      // Alert that is actively triggering
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndWrn_I7', type: 'alert', status: ['AON', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // AON means the alert output is active — must map to 1
+      expect(result.alerts[0].getIntegerField('state')).toBe(1);
+    });
+
+    it('maps AOF to integer 0 (alert is not firing)', () => {
+      // Alert that is not currently active
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // AOF means the alert output is inactive — must map to 0
+      expect(result.alerts[0].getIntegerField('state')).toBe(0);
+    });
+
+    it('stores raw status string in status field', () => {
+      // Preserve the raw Apex status string so Grafana can display it
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AON', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // Raw status string must be stored for display in Grafana tooltips
+      expect(result.alerts[0].getStringField('status')).toBe('AON');
+    });
+  });
+
+  // B — Boundary: type filter boundary (alert vs non-alert)
+  describe('type filter boundary', () => {
+    it('includes output with type exactly equal to alert', () => {
+      // Only exact string 'alert' type passes the filter
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'Alarm_6_2', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // type=alert must produce a point
+      expect(result.alerts).toHaveLength(1);
+    });
+
+    it('excludes output with type outlet even if name looks like an alert', () => {
+      // Ensure filter is based on type field, not name
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'AlertSoundingDevice', type: 'outlet', status: ['ON', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, new Date());
+      // type=outlet must be excluded regardless of name
+      expect(result.alerts).toHaveLength(0);
+    });
+  });
+
+  // E — Exception: timestamp is provided externally (no Apex timestamp)
+  describe('timestamp', () => {
+    it('uses the provided timestamp for all alert points', () => {
+      // Fixed timestamp for deterministic testing
+      const fixedTime = new Date('2026-03-11T08:00:00.000Z');
+      const status = createTestStatus({
+        outputs: [
+          createTestOutput({ name: 'SndAlm_I6', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+          createTestOutput({ name: 'EmailAlm_I5', type: 'alert', status: ['AOF', '', 'OK', ''] }),
+        ],
+      });
+      // Map to alert points
+      const result = mapStatusToAlertPoints(status, fixedTime);
+      // Both points must carry the same poll timestamp
+      expect((result.alerts[0].getTimestamp() as Date).toISOString()).toBe('2026-03-11T08:00:00.000Z');
+      expect((result.alerts[1].getTimestamp() as Date).toISOString()).toBe('2026-03-11T08:00:00.000Z');
     });
   });
 });

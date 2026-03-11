@@ -18,6 +18,11 @@ export interface ApexInputPoints {
   inputs: Point[];  // Points for all input readings (FMM floats, probes, etc.)
 }
 
+// Interface for the collection of mapped InfluxDB alert points
+export interface ApexAlertPoints {
+  alerts: Point[];  // Points for all alert-type outputs (SndAlm, EmailAlm, etc.)
+}
+
 // Parse Apex date string to JavaScript Date object
 // Format: "MM/DD/YYYY HH:MM:SS"
 function parseApexDate(dateStr: string, timezoneOffset: number): Date {
@@ -146,9 +151,10 @@ export function mapAllOutlogToPoints(outlog: ApexOutlog): ApexOutletPoints {
   return { outlets };
 }
 
-// Map a single ApexStatusOutput to an InfluxDB Point
-// Timestamp is provided externally (status.json has no per-record timestamps)
-function mapStatusOutputToPoint(
+// Shared helper: build a single InfluxDB Point for any output-type measurement
+// Allows both apex_outlet and apex_alert to share the same field/tag schema
+function buildOutputPoint(
+  measurement: string,
   output: ApexStatusOutput,
   hostname: string,
   timestamp: Date
@@ -160,14 +166,24 @@ function mapStatusOutputToPoint(
   // Everything else (OFF, AOF, TBL) maps to 0
   const state = (stateStr === 'ON' || stateStr === 'AON') ? 1 : 0;
 
-  // Build InfluxDB Point — reuses apex_outlet measurement for Grafana compatibility
-  return Point.measurement('apex_outlet')
-    .setTag('host', hostname)          // Apex hostname for multi-controller filtering
-    .setTag('name', output.name)       // Output name (e.g., "Sump", "TopOff")
-    .setTag('type', output.type)       // Output type tag (e.g., "outlet", "24v", "virtual") — allows Grafana filtering
-    .setIntegerField('state', state)   // Binary state: 1=on, 0=off
+  // Build InfluxDB Point using caller-supplied measurement name
+  return Point.measurement(measurement)
+    .setTag('host', hostname)           // Apex hostname for multi-controller filtering
+    .setTag('name', output.name)        // Output name (e.g., "Sump", "SndAlm_I6")
+    .setTag('type', output.type)        // Output type tag (e.g., "outlet", "alert") — allows Grafana filtering
+    .setIntegerField('state', state)    // Binary state: 1=on, 0=off
     .setStringField('status', stateStr) // Raw state string: ON/OFF/AON/AOF/TBL
-    .setTimestamp(timestamp);          // Fetch time passed in from poll()
+    .setTimestamp(timestamp);           // Fetch time passed in from poll()
+}
+
+// Map a single ApexStatusOutput to an InfluxDB Point for the apex_outlet measurement
+// Delegates to buildOutputPoint to keep outlet and alert schemas in sync
+function mapStatusOutputToPoint(
+  output: ApexStatusOutput,
+  hostname: string,
+  timestamp: Date
+): Point {
+  return buildOutputPoint('apex_outlet', output, hostname, timestamp);
 }
 
 // Transform an ApexStatus snapshot into InfluxDB outlet points
@@ -180,6 +196,21 @@ export function mapStatusToOutletPoints(status: ApexStatus, timestamp: Date): Ap
   );
   // Return using the existing ApexOutletPoints interface
   return { outlets };
+}
+
+// Transform an ApexStatus snapshot into InfluxDB alert points
+// Filters outputs to only those with type === 'alert' (SndAlm, EmailAlm, SndWrn, etc.)
+// Writes to apex_alert measurement so alerts can be queried separately from physical outlets
+// Timestamp must be provided by the caller (new Date() at time of getStatus() fetch)
+export function mapStatusToAlertPoints(status: ApexStatus, timestamp: Date): ApexAlertPoints {
+  // Filter to alert-type outputs only, then build a point for each
+  const alerts = status.outputs
+    .filter((output) => output.type === 'alert')  // Only alert outputs — excludes outlets, 24v, virtual, etc.
+    .map((output: ApexStatusOutput) =>
+      buildOutputPoint('apex_alert', output, status.hostname, timestamp)
+    );
+  // Return using the ApexAlertPoints interface
+  return { alerts };
 }
 
 // Transform an ApexStatus snapshot into InfluxDB input points

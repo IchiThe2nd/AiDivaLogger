@@ -1,5 +1,7 @@
 // Import node-cron for scheduling periodic tasks
 import cron from 'node-cron';
+// Import fileURLToPath to resolve the current module's file path for ESM entry guard
+import { fileURLToPath } from 'url';
 // Import application configuration
 import { config } from './config.js';
 // Import Apex client for fetching datalog
@@ -8,11 +10,11 @@ import { ApexClient } from './apex/client.js';
 import type { ApexDatalog } from './apex/types.js';
 // Import InfluxDB client factory and type
 import { createInfluxClient, InfluxClient } from './influx/client.js';
-// Import data transformation functions for probes and outlets
-import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapStatusToInputPoints, mapAllOutlogToPoints } from './influx/mapper.js';
+// Import data transformation functions for probes, outlets, inputs, and alerts
+import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapStatusToInputPoints, mapStatusToAlertPoints, mapAllOutlogToPoints } from './influx/mapper.js';
 
 // Parse Apex date format (MM/DD/YYYY HH:MM:SS) to Date object
-function parseApexDate(dateStr: string): Date {
+export function parseApexDate(dateStr: string): Date {
   // Split date and time parts
   const [datePart, timePart] = dateStr.split(' ');
   // Split date into components
@@ -24,7 +26,7 @@ function parseApexDate(dateStr: string): Date {
 }
 
 // Format duration in human-readable format
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   // Calculate time components
   const seconds = Math.floor(ms / 1000) % 60;
   const minutes = Math.floor(ms / (1000 * 60)) % 60;
@@ -43,7 +45,7 @@ function formatDuration(ms: number): string {
 
 // Check if error is the InfluxDB file limit error
 // Matches error patterns from InfluxDB 3 Core when query exceeds file limit
-function isFileLimitError(error: unknown): boolean {
+export function isFileLimitError(error: unknown): boolean {
   // Match InfluxDB file limit error patterns
   if (error instanceof Error) {
     // Check for both common error message patterns
@@ -57,7 +59,7 @@ function isFileLimitError(error: unknown): boolean {
 // Query for newest record by iterating through time chunks (most recent first)
 // Returns null if no data found within the lookback period
 // Uses chunked queries to avoid InfluxDB file limit errors
-async function queryNewestInChunks(
+export async function queryNewestInChunks(
   influx: InfluxClient,
   measurement: string
 ): Promise<{ time: string } | null> {
@@ -104,7 +106,7 @@ async function queryNewestInChunks(
 // Query for oldest record by iterating through time chunks (oldest first)
 // Returns null if no data found within the lookback period
 // Uses chunked queries to avoid InfluxDB file limit errors
-async function queryOldestInChunks(
+export async function queryOldestInChunks(
   influx: InfluxClient,
   measurement: string
 ): Promise<{ time: string } | null> {
@@ -151,7 +153,7 @@ async function queryOldestInChunks(
 // Get oldest record timestamp from InfluxDB
 // Returns null if database is empty
 // Uses chunked queries to avoid scanning too many files at once
-async function getOldestDbTime(influx: InfluxClient): Promise<Date | null> {
+export async function getOldestDbTime(influx: InfluxClient): Promise<Date | null> {
   try {
     // Query for oldest data point using chunked approach
     // Iterates from oldest to newest chunks until data is found
@@ -172,7 +174,7 @@ async function getOldestDbTime(influx: InfluxClient): Promise<Date | null> {
 }
 
 // Check database freshness, sync Apex data to database, and report status
-async function checkDatabaseFreshness(influx: InfluxClient, apexClient: ApexClient): Promise<void> {
+export async function checkDatabaseFreshness(influx: InfluxClient, apexClient: ApexClient): Promise<void> {
   try {
     // Fetch current datalog from Apex
     const datalog = await apexClient.getDatalog();
@@ -343,7 +345,7 @@ async function checkDatabaseFreshness(influx: InfluxClient, apexClient: ApexClie
 
 // Write an array of InfluxDB points in batches to avoid overwhelming the server
 // Returns the total number of points written
-async function writeBatched(influx: InfluxClient, points: import('@influxdata/influxdb3-client').Point[], batchSize: number = 500): Promise<number> {
+export async function writeBatched(influx: InfluxClient, points: import('@influxdata/influxdb3-client').Point[], batchSize: number = 500): Promise<number> {
   let totalWritten = 0;
   for (let i = 0; i < points.length; i += batchSize) {
     // Extract batch of points
@@ -364,7 +366,7 @@ async function writeBatched(influx: InfluxClient, points: import('@influxdata/in
 // Fill any gaps in the last 24 hours of data on startup
 // Fetches the full 24 hours from Apex and writes all records (probes + outlets)
 // InfluxDB deduplicates existing records, so this safely fills any gaps
-async function backfillRecentGaps(influx: InfluxClient, apexClient: ApexClient): Promise<void> {
+export async function backfillRecentGaps(influx: InfluxClient, apexClient: ApexClient): Promise<void> {
   console.log('Backfilling last 24 hours to fill any gaps...');
   try {
     // Calculate start date as 24 hours ago
@@ -458,9 +460,15 @@ async function main() {
       // Write all input points to InfluxDB
       await influx.writePoints(inputPoints.inputs);
 
+      // Transform alert-type outputs (SndAlm, EmailAlm, SndWrn, etc.) to InfluxDB points
+      // Stored in apex_alert measurement so alerts are queryable separately from physical outlets
+      const alertPoints = mapStatusToAlertPoints(status, timestamp);
+      // Write all alert points to InfluxDB
+      await influx.writePoints(alertPoints.alerts);
+
       // Log success with point counts
       const latestDate = datalog.records[datalog.records.length - 1]?.date || 'N/A';
-      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet + ${inputPoints.inputs.length} input points (record: ${latestDate})`);
+      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet + ${inputPoints.inputs.length} input + ${alertPoints.alerts.length} alert points (record: ${latestDate})`);
     } catch (error) {
       // Log any errors that occur during polling
       console.error(`[${timestampStr}] Poll failed:`, error);
@@ -497,10 +505,14 @@ async function main() {
   });
 }
 
-// Execute main function and handle fatal errors
-main().catch((error) => {
-  // Log fatal error
-  console.error('Fatal error:', error);
-  // Exit with error code
-  process.exit(1);
-});
+// Only run main() when this file is executed directly (not when imported by tests)
+// Best practice: ESM entry point guard prevents side effects during test imports
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Execute main function and handle fatal errors
+  main().catch((error) => {
+    // Log fatal error
+    console.error('Fatal error:', error);
+    // Exit with error code
+    process.exit(1);
+  });
+}

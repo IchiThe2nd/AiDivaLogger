@@ -8,7 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. Comment each line for understanding
 3. Use test driven development
 4. Each test must only test one item
-5. use best practices and explain what they are
+5. Use best practices and explain what they are
+6. Write tests following the ZOMBIES heuristic (by James Grenning):
+   - **Z — Zero**: test the empty/initial state first
+   - **O — One**: test a single interaction
+   - **M — Many**: generalize to multiple items (forces loops, ordering, accumulation)
+   - **B — Boundary**: test edges where behavior changes (empty→non-empty, full, off-by-one)
+   - **I — Interface**: each test defines the public API from the caller's perspective
+   - **E — Exercise exceptional behavior**: test errors, invalid inputs, and failure paths
+   - **S — Simple scenarios / Simple solutions**: write the minimum code to pass the current test; defer complexity until a test forces it
 
 ## Build Commands
 
