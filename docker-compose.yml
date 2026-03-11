@@ -79,6 +79,20 @@ services:
     # Restart automatically on crash
     restart: unless-stopped
 
+  # Telegraf - collects Pi connectivity metrics and writes to InfluxDB
+  telegraf:
+    image: telegraf:latest
+    mem_limit: 128m
+    # Mount the config file into the container
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    # Wait for InfluxDB to be ready before starting
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    # Restart automatically on crash or reboot
+    restart: unless-stopped
+
   # Grafana - web dashboard for visualizing probe and outlet data
   grafana:
     mem_limit:  512m
