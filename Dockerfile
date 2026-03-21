@@ -24,15 +24,20 @@ RUN npm run build
 # Stage 2: Production runtime image
 # Best practice: multi-stage build keeps final image small by excluding
 # build tools, devDependencies, and source files
-FROM node:22-alpine AS runtime
+#
+# Use Debian slim (not Alpine) for the runtime stage because Alpine uses musl
+# libc which does not support glibc NSS plugins. Debian's glibc is required
+# for libnss-mdns, which enables .local mDNS resolution (e.g. diva.local)
+# via the host's Avahi daemon socket mounted in docker-compose.yml.
+FROM node:22-slim AS runtime
 
-# Install nss-mdns so the container can resolve .local mDNS hostnames
-# (e.g. diva.local / apex.local) via the host's Avahi daemon socket.
-# Without this, Alpine's libc cannot query mDNS even with network_mode: host.
-RUN apk add --no-cache nss-mdns && \
+# Install libnss-mdns so the container can resolve .local mDNS hostnames
+# via the host's running avahi-daemon (socket mounted at runtime).
+RUN apt-get update && apt-get install -y --no-install-recommends libnss-mdns && \
+    rm -rf /var/lib/apt/lists/* && \
     # Enable mdns4_minimal in NSS lookup order before falling back to DNS.
-    # mdns4_minimal resolves .local names only; [NOTFOUND=return] stops the
-    # lookup immediately when the name is not found via mDNS (avoids DNS leaks).
+    # mdns4_minimal handles only .local names; [NOTFOUND=return] prevents
+    # unnecessary DNS fallback when a .local name isn't found via mDNS.
     sed -i 's/^hosts:.*/hosts: files mdns4_minimal [NOTFOUND=return] dns mdns4/' /etc/nsswitch.conf
 
 # Set the working directory
