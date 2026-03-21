@@ -26,6 +26,15 @@ RUN npm run build
 # build tools, devDependencies, and source files
 FROM node:22-alpine AS runtime
 
+# Install nss-mdns so the container can resolve .local mDNS hostnames
+# (e.g. diva.local / apex.local) via the host's Avahi daemon socket.
+# Without this, Alpine's libc cannot query mDNS even with network_mode: host.
+RUN apk add --no-cache nss-mdns && \
+    # Enable mdns4_minimal in NSS lookup order before falling back to DNS.
+    # mdns4_minimal resolves .local names only; [NOTFOUND=return] stops the
+    # lookup immediately when the name is not found via mDNS (avoids DNS leaks).
+    sed -i 's/^hosts:.*/hosts: files mdns4_minimal [NOTFOUND=return] dns mdns4/' /etc/nsswitch.conf
+
 # Set the working directory
 WORKDIR /app
 

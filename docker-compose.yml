@@ -81,6 +81,10 @@ services:
       - POLL_INTERVAL=${POLL_INTERVAL:-*/5 * * * *}
       - QUERY_LOOKBACK_DAYS=${QUERY_LOOKBACK_DAYS:-30}
       - QUERY_CHUNK_DAYS=${QUERY_CHUNK_DAYS:-7}
+    # Mount the host's Avahi daemon socket so nss-mdns inside the container
+    # can resolve .local mDNS hostnames using the Pi's running avahi-daemon.
+    volumes:
+      - /run/avahi-daemon/socket:/run/avahi-daemon/socket
     # Restart automatically on crash
     restart: unless-stopped
 
