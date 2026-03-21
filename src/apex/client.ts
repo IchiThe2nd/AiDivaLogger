@@ -177,7 +177,7 @@ export class ApexClient {
   // Optional onChunk callback is called with each day's datalog for DB writes
   async getDataCoverage(onChunk?: (datalog: ApexDatalog) => Promise<void>): Promise<DataCoverageResult> {
     // Scan last 60 days of data
-    const totalDaysToCheck = 60;
+    const totalDaysToCheck = 30;
     // Calculate start date as 60 days ago
     const now = new Date();
     const startDate = new Date(now);

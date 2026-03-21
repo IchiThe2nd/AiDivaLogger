@@ -254,14 +254,14 @@ export async function checkDatabaseFreshness(influx: InfluxClient, apexClient: A
           }
           // Write batch to InfluxDB
           await influx.writePoints(batch);
-          // Small delay to let InfluxDB process before next batch
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          // Brief pause between batches — reduced from 100ms since Pi is not CPU-bound
+          await new Promise((resolve) => setTimeout(resolve, 25));
         }
         pointsWrittenDuringCoverage += points.probes.length;
 
-        // Longer delay after each chunk to let InfluxDB fully process before next chunk
-        // With 3-day chunks (~82k points), InfluxDB needs time to deduplicate
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Pause between chunks to let InfluxDB flush WAL before the next write
+        // Reduced from 2000ms — Pi resources are not stressed so 500ms is sufficient
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     });
 
@@ -357,8 +357,8 @@ export async function writeBatched(influx: InfluxClient, points: import('@influx
     // Write batch to InfluxDB
     await influx.writePoints(batch);
     totalWritten += batch.length;
-    // Small delay between batches
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Brief pause between batches — reduced from 100ms since Pi is not CPU-bound
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
   return totalWritten;
 }
