@@ -60,6 +60,11 @@ services:
     # Build from the Dockerfile in this directory
     build: .
     mem_limit:  512m
+    # Use host networking so the container can resolve mDNS hostnames (e.g. apex.local)
+    # via the host's Avahi/Bonjour daemon — required when APEX_HOST uses DHCP.
+    # With host networking, Docker internal DNS is unavailable, so InfluxDB is
+    # reached via localhost instead of the service name.
+    network_mode: host
     # Wait for InfluxDB to pass health check before starting
     depends_on:
       influxdb:
@@ -70,8 +75,8 @@ services:
       - APEX_HOST=${APEX_HOST}
       - APEX_USERNAME=${APEX_USERNAME:-}
       - APEX_PASSWORD=${APEX_PASSWORD:-}
-      # Use Docker service name "influxdb" as hostname (Docker internal DNS)
-      - INFLUX_URL=http://influxdb:8181
+      # localhost works here because network_mode: host shares the host network stack
+      - INFLUX_URL=http://localhost:8181
       - INFLUX_DATABASE=${INFLUX_DATABASE:-aquarium}
       - POLL_INTERVAL=${POLL_INTERVAL:-*/5 * * * *}
       - QUERY_LOOKBACK_DAYS=${QUERY_LOOKBACK_DAYS:-30}
