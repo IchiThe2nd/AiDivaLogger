@@ -162,9 +162,11 @@ function buildOutputPoint(
   // Extract state string from the first element of the status array
   // Possible values: "ON" (manual on), "OFF" (off), "AON" (auto on), "AOF" (auto off), "TBL" (table-controlled)
   const stateStr = output.status[0];
-  // ON and AON both mean the output is physically running — map to 1
-  // Everything else (OFF, AOF, TBL) maps to 0
-  const state = (stateStr === 'ON' || stateStr === 'AON') ? 1 : 0;
+  // Encode each distinct state as a unique integer for Grafana value mapping:
+  // 0 = OFF (manually off), 1 = ON (manually on),
+  // 2 = AOF (auto off), 3 = AON (auto on), 4 = TBL (table/program controlled)
+  const stateMap: Record<string, number> = { OFF: 0, ON: 1, AOF: 2, AON: 3, TBL: 4 };
+  const state = stateMap[stateStr] ?? 0;
 
   // Build InfluxDB Point using caller-supplied measurement name
   return Point.measurement(measurement)
