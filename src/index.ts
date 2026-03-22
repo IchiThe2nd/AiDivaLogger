@@ -420,10 +420,6 @@ async function main() {
   // Create and initialize InfluxDB client
   const influx = await createInfluxClient(config.influx);
 
-  // Backfill any gaps in the last 24 hours before starting polling
-  // This runs synchronously to ensure recent data is complete before polls begin
-  await backfillRecentGaps(influx, apexClient);
-
   // Sync Apex data to database in background (don't block polling)
   console.log('Starting background sync (polling will continue)...');
   checkDatabaseFreshness(influx, apexClient)
