@@ -195,6 +195,16 @@ export async function checkDatabaseFreshness(influx: InfluxClient, apexClient: A
       ? new Date(preCheckResult.time)
       : null;
 
+    // Skip full historical scan if DB is already fresh (within 10 minutes of Apex)
+    // Avoids downloading 30 days of Apex data on every startup when nothing is missing
+    if (!config.forceFullSync && newestDbTimeBefore) {
+      const lagMs = apexTime.getTime() - newestDbTimeBefore.getTime();
+      if (lagMs < 10 * 60 * 1000) {
+        console.log(`Database is up to date (${formatDuration(lagMs)} behind Apex), skipping historical scan.`);
+        return;
+      }
+    }
+
     // Track total points written and skipped during coverage scan
     let pointsWrittenDuringCoverage = 0;
     let recordsSkipped = 0;
