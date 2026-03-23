@@ -45,6 +45,7 @@ services:
       --data-dir=/var/lib/influxdb3/data
       --query-file-limit=15000
       --without-auth
+      --wal-flush-interval=10s
     # Health check so dependent services wait until DB is ready
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8181/health"]
