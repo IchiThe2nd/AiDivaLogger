@@ -52,6 +52,7 @@ import {
   writeBatched,
   backfillRecentGaps,
   checkDatabaseFreshness,
+  waitForApex,
 } from './index.js';
 
 // Import mocked mapper functions so tests can control their return values
@@ -445,6 +446,75 @@ describe('backfillRecentGaps', () => {
     const mockInflux = createMockInflux();
     await expect(backfillRecentGaps(mockInflux, mockApex as any)).resolves.toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith('Backfill failed:', expect.any(Error));
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('waitForApex', () => {
+  it('resolves immediately when Apex responds on the first attempt', async () => {
+    // Zero retries needed — Apex is already reachable
+    const mockApex = createMockApexClient();
+    await expect(waitForApex(mockApex as any, 0)).resolves.toBeUndefined();
+    expect(mockApex.getDatalog).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries after a failure and resolves on the second attempt', async () => {
+    // One retry — first call fails (e.g. mDNS not ready), second succeeds
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockApex = createMockApexClient();
+    mockApex.getDatalog
+      .mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND diva.local'))
+      .mockResolvedValueOnce(createTestDatalog());
+    await expect(waitForApex(mockApex as any, 0)).resolves.toBeUndefined();
+    expect(mockApex.getDatalog).toHaveBeenCalledTimes(2);
+    consoleSpy.mockRestore();
+  });
+
+  it('retries multiple times before resolving', async () => {
+    // Many retries — Apex takes a while to come up
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockApex = createMockApexClient();
+    mockApex.getDatalog
+      .mockRejectedValueOnce(new Error('ENOTFOUND'))
+      .mockRejectedValueOnce(new Error('ENOTFOUND'))
+      .mockRejectedValueOnce(new Error('ENOTFOUND'))
+      .mockResolvedValueOnce(createTestDatalog());
+    await expect(waitForApex(mockApex as any, 0)).resolves.toBeUndefined();
+    expect(mockApex.getDatalog).toHaveBeenCalledTimes(4);
+    consoleSpy.mockRestore();
+  });
+
+  it('logs a message for each failed attempt', async () => {
+    // Each failure should produce a console.log with "Apex not reachable"
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockApex = createMockApexClient();
+    mockApex.getDatalog
+      .mockRejectedValueOnce(new Error('ENOTFOUND'))
+      .mockResolvedValueOnce(createTestDatalog());
+    await waitForApex(mockApex as any, 0);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Apex not reachable'));
+    consoleSpy.mockRestore();
+  });
+
+  it('logs a success message when it resolves after retrying', async () => {
+    // After one or more retries, success should be logged
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockApex = createMockApexClient();
+    mockApex.getDatalog
+      .mockRejectedValueOnce(new Error('ENOTFOUND'))
+      .mockResolvedValueOnce(createTestDatalog());
+    await waitForApex(mockApex as any, 0);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Apex reachable after'));
+    consoleSpy.mockRestore();
+  });
+
+  it('does not log a success message when it resolves on the first attempt', async () => {
+    // No retries needed — success message should be suppressed (not spammy on healthy starts)
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockApex = createMockApexClient();
+    await waitForApex(mockApex as any, 0);
+    const logs = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(logs.some((msg) => typeof msg === 'string' && msg.includes('Apex reachable after'))).toBe(false);
     consoleSpy.mockRestore();
   });
 });

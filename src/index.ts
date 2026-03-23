@@ -373,6 +373,30 @@ export async function writeBatched(influx: InfluxClient, points: import('@influx
   return totalWritten;
 }
 
+// Wait for the Apex controller to become reachable before proceeding
+// Retries indefinitely — handles mDNS not ready at container start, Apex rebooting, etc.
+export async function waitForApex(apexClient: ApexClient, retryIntervalMs: number = 10_000): Promise<void> {
+  let attempt = 0;
+  // Loop until a successful response is received
+  while (true) {
+    attempt++;
+    try {
+      // Minimal request — just confirms the Apex is reachable
+      await apexClient.getDatalog(true);
+      // Log success only if we had to retry
+      if (attempt > 1) {
+        console.log(`Apex reachable after ${attempt} attempts.`);
+      }
+      return;
+    } catch (error) {
+      // Log failure and wait before retrying
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`Apex not reachable (attempt ${attempt}): ${message}. Retrying in ${retryIntervalMs / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+    }
+  }
+}
+
 // Fill any gaps in the last 24 hours of data on startup
 // Fetches the full 24 hours from Apex and writes all records (probes + outlets)
 // InfluxDB deduplicates existing records, so this safely fills any gaps
@@ -430,7 +454,13 @@ async function main() {
   // Create and initialize InfluxDB client
   const influx = await createInfluxClient(config.influx);
 
-  // Sync Apex data to database in background (don't block polling)
+  // Block until Apex is reachable — handles mDNS not ready, Apex rebooting, etc.
+  await waitForApex(apexClient);
+
+  // Fill any gaps in the last 24 hours before starting normal polling
+  await backfillRecentGaps(influx, apexClient);
+
+  // Sync full history in background (don't block polling)
   console.log('Starting background sync (polling will continue)...');
   checkDatabaseFreshness(influx, apexClient)
     .then(() => console.log('Background sync finished'))
