@@ -9,6 +9,10 @@ export interface Config {
     username?: string;      // Optional username for authentication
     password?: string;      // Optional password for authentication
   };
+  // Reefmat roll filter connection settings (optional device)
+  reefmat?: {
+    host: string;           // IP address or hostname of the Reefmat
+  };
   // InfluxDB 3.x connection settings
   influx: {
     url: string;            // Full URL to InfluxDB server (e.g., http://localhost:8086)
@@ -69,6 +73,10 @@ export const config: Config = {
     token: optionalEnv('INFLUX_TOKEN'),                       // Optional: API token
     database: process.env.INFLUX_DATABASE || 'aquarium',      // Database/bucket name
   },
+  // Reefmat configuration — only populated when REEFMAT_HOST is set
+  reefmat: process.env.REEFMAT_HOST
+    ? { host: process.env.REEFMAT_HOST }
+    : undefined,
   // Polling schedule - defaults to every 5 minutes
   pollInterval: process.env.POLL_INTERVAL || '*/5 * * * *',
   // Days of historical data to backfill on first run - defaults to 7 days

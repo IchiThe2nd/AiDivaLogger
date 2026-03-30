@@ -12,6 +12,10 @@ import type { ApexDatalog } from './apex/types.js';
 import { createInfluxClient, InfluxClient } from './influx/client.js';
 // Import data transformation functions for probes, outlets, inputs, and alerts
 import { mapDatalogToPoints, mapAllRecordsToPoints, mapStatusToOutletPoints, mapStatusToInputPoints, mapStatusToAlertPoints, mapAllOutlogToPoints } from './influx/mapper.js';
+// Import Reefmat client for fetching roll filter data
+import { ReefmatClient } from './reefmat/client.js';
+// Import Reefmat mapper for transforming dashboard data to InfluxDB points
+import { mapDashboardToPoints } from './reefmat/mapper.js';
 
 // Parse Apex date format (MM/DD/YYYY HH:MM:SS) to Date object
 export function parseApexDate(dateStr: string): Date {
@@ -451,6 +455,14 @@ async function main() {
 
   // Create Apex client with configuration
   const apexClient = new ApexClient(config.apex);
+  // Create Reefmat client only if REEFMAT_HOST is configured
+  const reefmatClient = config.reefmat ? new ReefmatClient(config.reefmat) : null;
+  // Log Reefmat status so the operator knows whether it is enabled
+  if (reefmatClient) {
+    console.log(`Reefmat host: ${config.reefmat!.host}`);
+  } else {
+    console.log('Reefmat: not configured (set REEFMAT_HOST to enable)');
+  }
   // Create and initialize InfluxDB client
   const influx = await createInfluxClient(config.influx);
 
@@ -502,9 +514,28 @@ async function main() {
       // Write all alert points to InfluxDB
       await influx.writePoints(alertPoints.alerts);
 
+      // Poll Reefmat if it is configured
+      let reefmatPointCount = 0;
+      if (reefmatClient) {
+        try {
+          // Fetch the current dashboard snapshot from the Reefmat
+          const dashboard = await reefmatClient.getDashboard();
+          // Transform dashboard to InfluxDB points using the poll timestamp
+          const reefmatPoints = mapDashboardToPoints(dashboard, config.reefmat!.host, timestamp);
+          // Write Reefmat points to InfluxDB
+          await influx.writePoints(reefmatPoints.points);
+          // Track count for logging
+          reefmatPointCount = reefmatPoints.points.length;
+        } catch (error) {
+          // Log Reefmat errors separately so they don't interrupt Apex logging
+          console.error(`[${timestampStr}] Reefmat poll failed:`, error);
+        }
+      }
+
       // Log success with point counts
       const latestDate = datalog.records[datalog.records.length - 1]?.date || 'N/A';
-      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet + ${inputPoints.inputs.length} input + ${alertPoints.alerts.length} alert points (record: ${latestDate})`);
+      const reefmatSuffix = reefmatClient ? ` + ${reefmatPointCount} reefmat` : '';
+      console.log(`[${timestampStr}] Wrote ${probePoints.probes.length} probe + ${outletPoints.outlets.length} outlet + ${inputPoints.inputs.length} input + ${alertPoints.alerts.length} alert${reefmatSuffix} points (record: ${latestDate})`);
     } catch (error) {
       // Log any errors that occur during polling
       console.error(`[${timestampStr}] Poll failed:`, error);
