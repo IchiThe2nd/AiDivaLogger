@@ -14,6 +14,11 @@ export class InfluxClient {
   private client: InfluxDBClient;
   // Database name for all operations
   private database: string;
+  // Serial write queue — only one write is in flight at a time.
+  // InfluxDB 3 Core's WAL rejects concurrent writes from the same process
+  // ("another process has written to the WAL ahead of this one"), so all
+  // callers (poll, backfill, background sync) must take turns.
+  private writeQueue: Promise<void> = Promise.resolve();
 
   // Constructor creates the client connection
   constructor(config: InfluxClientConfig) {
@@ -34,8 +39,13 @@ export class InfluxClient {
       return;
     }
 
-    // Write all points to the database
-    await this.client.write(points, this.database);
+    // Chain this write onto the queue so it runs after the previous write completes.
+    // `write` is what the caller awaits — it carries the real result or error.
+    // `this.writeQueue` is always resolved (errors swallowed) so a failed write
+    // doesn't permanently block the queue for subsequent callers.
+    const write = this.writeQueue.then(() => this.client.write(points, this.database));
+    this.writeQueue = write.catch(() => {});
+    return write;
   }
 
   // Query the database using SQL and return results
