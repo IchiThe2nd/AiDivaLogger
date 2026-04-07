@@ -32,18 +32,42 @@ export class InfluxClient {
     });
   }
 
-  // Write an array of Point objects to the database
-  async writePoints(points: Point[]): Promise<void> {
+  // Write an array of Point objects to the database, retrying on WAL conflicts.
+  // InfluxDB 3 Core uses a node-wide WAL lock — concurrent writers (Telegraf,
+  // background sync, poll) collide even across databases. Retrying with a short
+  // backoff recovers without losing data.
+  async writePoints(points: Point[], maxRetries: number = 5): Promise<void> {
     // Skip if no points to write
     if (points.length === 0) {
       return;
     }
 
-    // Chain this write onto the queue so it runs after the previous write completes.
-    // `write` is what the caller awaits — it carries the real result or error.
-    // `this.writeQueue` is always resolved (errors swallowed) so a failed write
-    // doesn't permanently block the queue for subsequent callers.
-    const write = this.writeQueue.then(() => this.client.write(points, this.database));
+    // Chain onto the serial queue so internal callers don't race each other
+    const write = this.writeQueue.then(async () => {
+      // Retry loop for WAL conflict errors from external writers (e.g. Telegraf)
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await this.client.write(points, this.database);
+          return; // Success — exit retry loop
+        } catch (error) {
+          // Check if this is a WAL conflict (another process wrote ahead of us)
+          const isWalConflict = error instanceof Error &&
+            error.message.includes('another process has written to the WAL');
+
+          // If not a WAL conflict, or we've exhausted retries, rethrow
+          if (!isWalConflict || attempt === maxRetries) {
+            throw error;
+          }
+
+          // Wait briefly before retrying — gives the other writer time to finish
+          // Backoff: 200ms, 400ms, 800ms, 1600ms
+          const delayMs = 200 * Math.pow(2, attempt - 1);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    });
+
+    // Keep the queue head always resolved so future callers aren't blocked by errors
     this.writeQueue = write.catch(() => {});
     return write;
   }
