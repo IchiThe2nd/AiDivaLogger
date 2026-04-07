@@ -82,6 +82,9 @@ services:
       - POLL_INTERVAL=${POLL_INTERVAL:-*/5 * * * *}
       - QUERY_LOOKBACK_DAYS=${QUERY_LOOKBACK_DAYS:-30}
       - QUERY_CHUNK_DAYS=${QUERY_CHUNK_DAYS:-7}
+      # Cap Node.js heap to stay well within the 512m container limit
+      # Without this Node grows to ~1.5GB before GC intervenes, hitting the container OOM killer
+      - NODE_OPTIONS=--max-old-space-size=400
     # Mount the host's Avahi daemon socket so nss-mdns inside the container
     # can resolve .local mDNS hostnames using the Pi's running avahi-daemon.
     volumes:

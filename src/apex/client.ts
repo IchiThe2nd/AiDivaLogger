@@ -195,9 +195,9 @@ export class ApexClient {
     // Track unique dates with data
     const uniqueDatesWithData = new Set<string>();
 
-    // Fetch in 3-day chunks to balance HTTP requests vs InfluxDB dedup load
-    // 60 days / 3 = 20 requests (vs 60 with 1-day chunks)
-    const chunkSizeDays = 3;
+    // Fetch in 1-day chunks to keep per-chunk memory low on constrained devices (Pi 512MB)
+    // Each 3-day chunk was ~100k Points which caused OOM; 1-day chunks cut that by 3x
+    const chunkSizeDays = 1;
     const totalChunks = Math.ceil(totalDaysToCheck / chunkSizeDays);
     console.log(`Scanning ${totalDaysToCheck} days of Apex data in ${totalChunks} chunks...`);
 
@@ -213,7 +213,7 @@ export class ApexClient {
       const daysInChunk = Math.min(chunkSizeDays, remainingDays);
 
       try {
-        // Fetch multiple days of data in one request
+        // Fetch one day of data per request
         const datalog = await this.getHistoricalDatalog(chunkDate, daysInChunk);
 
         // Count records in this chunk
