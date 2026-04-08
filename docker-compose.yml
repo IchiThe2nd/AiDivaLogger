@@ -22,7 +22,7 @@ services:
 
   # InfluxDB 3 Core - time-series database for probe and outlet data
   influxdb:
-    mem_limit:  512m
+    mem_limit: 1g
     image: influxdb:3-core
     # Wait for init to fix volume permissions before starting
     depends_on:
