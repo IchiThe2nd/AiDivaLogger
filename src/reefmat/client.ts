@@ -23,8 +23,10 @@ export class ReefmatClient {
     // Build the dashboard endpoint URL
     const url = `${this.baseUrl}/dashboard`;
 
-    // Fetch the dashboard JSON from the device
-    const response = await fetch(url);
+    // Fetch the dashboard JSON from the device with a 5-second timeout.
+    // The ESP32 web server can be slow to respond; without a timeout Node.js
+    // fetch hangs indefinitely and the error message gives no useful detail.
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
 
     // Throw a descriptive error if the request failed
     if (!response.ok) {

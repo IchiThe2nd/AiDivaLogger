@@ -528,7 +528,9 @@ async function main() {
           reefmatPointCount = reefmatPoints.points.length;
         } catch (error) {
           // Log Reefmat errors separately so they don't interrupt Apex logging
-          console.error(`[${timestampStr}] Reefmat poll failed:`, error);
+          // Include error.cause for fetch failures (gives the underlying socket error)
+          const cause = error instanceof Error && (error as NodeJS.ErrnoException).cause;
+          console.error(`[${timestampStr}] Reefmat poll failed:`, error, cause ? `cause: ${cause}` : '');
         }
       }
 
